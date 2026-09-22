@@ -101,7 +101,25 @@ jobs:
         env:
           APP_VERSION_CODE: ${{ github.run_number }}
           APP_VERSION_NAME: 0.0.${{ github.run_number }}
-        run: gradle assembleDebug --no-daemon --stacktrace
+        shell: bash
+        run: |
+          set -o pipefail
+          gradle assembleDebug --no-daemon --stacktrace 2>&1 | tee build.log
+
+      # Логи Actions без входа в GitHub не читаются (403), а на KZ входа нет — поэтому при
+      # падении кладём лог сборки в ветку ci-logs, откуда его можно прочитать как raw-файл.
+      - name: Лог сборки при падении
+        if: failure()
+        shell: bash
+        run: |
+          mkdir -p /tmp/ci-logs && cp build.log /tmp/ci-logs/build-${{ github.run_number }}.log
+          git config user.name "ci" && git config user.email "ci@noctilis.net"
+          git checkout --orphan ci-logs
+          git rm -rfq . || true
+          cp /tmp/ci-logs/*.log .
+          git add *.log
+          git commit -qm "лог сборки ${{ github.run_number }}"
+          git push -f origin ci-logs
 
       - name: Переименовать
         run: cp app/build/outputs/apk/debug/app-debug.apk noctilis-android-0.0.${{ github.run_number }}.apk
