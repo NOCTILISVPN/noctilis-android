@@ -16,14 +16,17 @@ android {
         versionCode = (System.getenv("APP_VERSION_CODE") ?: "1").toInt()
         versionName = System.getenv("APP_VERSION_NAME") ?: "0.0.1-dev"
         ndk {
-            // libbox собран под эти архитектуры (gomobile -target android)
-            abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64")
+            // Только arm64: все современные телефоны. Три архитектуры давали APK 102 МБ,
+            // Chrome на телефоне вис на проверке такого файла (22.09).
+            abiFilters += listOf("arm64-v8a")
         }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
+            // пока нет боевого ключа подписи — подписываем отладочным, но сборка не debuggable
+            signingConfig = signingConfigs.getByName("debug")
         }
     }
     compileOptions {
@@ -38,7 +41,7 @@ android {
         buildConfig = true
     }
     packaging {
-        jniLibs.useLegacyPackaging = true
+        jniLibs.useLegacyPackaging = false   // сжатые .so в APK
     }
 }
 

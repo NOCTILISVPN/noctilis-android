@@ -151,7 +151,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          gradle assembleDebug --no-daemon --stacktrace 2>&1 | tee build.log
+          gradle assembleRelease --no-daemon --stacktrace 2>&1 | tee build.log
 
       # Логи Actions без входа в GitHub не читаются (403), а на KZ входа нет — поэтому при
       # падении кладём лог сборки в ветку ci-logs, откуда его можно прочитать как raw-файл.
@@ -169,7 +169,7 @@ jobs:
           git push -f origin ci-logs
 
       - name: Переименовать
-        run: cp app/build/outputs/apk/debug/app-debug.apk noctilis-android-0.0.${{ github.run_number }}.apk
+        run: cp app/build/outputs/apk/release/app-release.apk noctilis-android-0.0.${{ github.run_number }}.apk
 
       - name: Артефакт сборки
         uses: actions/upload-artifact@v4
