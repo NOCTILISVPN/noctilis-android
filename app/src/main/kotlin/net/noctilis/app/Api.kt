@@ -51,6 +51,9 @@ object Api {
 
     fun config(token: String): JSONObject = call("GET", "/config", token = token)
 
+    /** Привязка действующей подписки по ссылке из кабинета (решение Андрея 22.09). */
+    fun link(token: String, sub: String): JSONObject = call("POST", "/link", JSONObject().put("sub", sub), token)
+
     /** Журнал ядра и состояние — на сервер, чтобы разбирать «не подключается» без adb. */
     fun diag(token: String, log: String, server: String, excludedCount: Int, status: String, note: String = ""): JSONObject {
         val body = JSONObject()

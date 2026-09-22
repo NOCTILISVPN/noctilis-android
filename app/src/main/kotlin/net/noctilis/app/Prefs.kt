@@ -60,6 +60,11 @@ object Prefs {
         get() = sp.getBoolean("autostart", true)
         set(v) = sp.edit().putBoolean("autostart", v).apply()
 
+    /** Дата последнего напоминания об окончании (yyyy-MM-dd) — не чаще раза в сутки. */
+    var lastReminderDay: String
+        get() = sp.getString("reminder_day", "") ?: ""
+        set(v) = sp.edit().putString("reminder_day", v).apply()
+
     /** Пользователь хотел VPN включённым (для автозапуска после перезагрузки). */
     var wantConnected: Boolean
         get() = sp.getBoolean("want", false)

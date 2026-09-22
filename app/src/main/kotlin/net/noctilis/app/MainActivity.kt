@@ -138,6 +138,7 @@ class MainActivity : ComponentActivity() {
                 val me = Api.me(token)
                 Prefs.me = me.toString()
                 runOnUiThread { account = me; error = null }
+                Reminder.check(this, me)
                 if (me.optBoolean("active")) {
                     val cfg = Api.config(token)
                     Prefs.config = cfg.toString()
@@ -171,7 +172,7 @@ class MainActivity : ComponentActivity() {
 
     @Composable
     private fun Root() {
-        var screen by remember { mutableStateOf(Screen.Home) }
+        var screen by remember { mutableStateOf(if (intent?.getStringExtra("screen") == "pay") Screen.Pay else Screen.Home) }
         val status by VpnState.status.collectAsState()
         val vpnPermission = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
             if (it.resultCode == Activity.RESULT_OK) VPNService.start(this)
@@ -375,6 +376,52 @@ class MainActivity : ComponentActivity() {
                     Text("Аккаунт", color = Fog, fontSize = 13.sp)
                     Text(acc?.optString("username") ?: "—", color = Color.White, fontSize = 15.sp)
                     Text("Устройств на подписке: ${acc?.optInt("device_limit") ?: "—"}", color = Fog, fontSize = 13.sp)
+                    Spacer(Modifier.height(12.dp))
+                    var linkOpen by remember { mutableStateOf(false) }
+                    var linkText by remember { mutableStateOf("") }
+                    var linkState by remember { mutableStateOf("") }
+                    Text("У меня уже есть подписка — привязать", color = Moon, fontSize = 15.sp,
+                        modifier = Modifier.clickable { linkOpen = !linkOpen }.padding(vertical = 6.dp))
+                    if (linkOpen) {
+                        Text("Вставьте ссылку подписки из кабинета или бота (там она копируется одним нажатием). Пробный аккаунт этого телефона будет заменён вашей подпиской.",
+                            color = Fog, fontSize = 12.sp)
+                        Spacer(Modifier.height(6.dp))
+                        OutlinedTextField(
+                            value = linkText, onValueChange = { linkText = it }, singleLine = true,
+                            placeholder = { Text("https://…/api/sub/…", color = Fog) },
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = Moon, unfocusedBorderColor = Fog,
+                                focusedTextColor = Color.White, unfocusedTextColor = Color.White, cursorColor = Moon,
+                            ),
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        Box(
+                            Modifier.fillMaxWidth().height(46.dp).clip(RoundedCornerShape(12.dp)).background(Glow)
+                                .clickable(enabled = linkText.isNotBlank() && linkState != "Проверяем…") {
+                                    linkState = "Проверяем…"
+                                    Thread {
+                                        val r = try {
+                                            val t = Prefs.token ?: error("нет аккаунта")
+                                            val me = Api.link(t, linkText.trim())
+                                            Prefs.me = me.toString()
+                                            runOnUiThread { account = me }
+                                            refresh(silent = true)
+                                            if (me.optBoolean("already")) "Эта подписка уже привязана" else "Готово: подписка привязана"
+                                        } catch (e: ApiException) {
+                                            when (e.message) {
+                                                "not_found" -> "Подписка по этой ссылке не найдена"
+                                                "bad_link" -> "Это не похоже на ссылку подписки"
+                                                else -> "Сервер ответил: ${e.message}"
+                                            }
+                                        } catch (e: Exception) { "Нет связи с сервером" }
+                                        runOnUiThread { linkState = r; if (r.startsWith("Готово")) { linkText = ""; restartIfRunning() } }
+                                    }.start()
+                                },
+                            contentAlignment = Alignment.Center,
+                        ) { Text("Привязать", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Medium) }
+                        if (linkState.isNotEmpty()) { Spacer(Modifier.height(6.dp)); Text(linkState, color = if (linkState.startsWith("Готово")) Color(0xFF4CD97B) else Warn, fontSize = 13.sp) }
+                    }
                     Spacer(Modifier.height(16.dp))
                     Text("Обновить список серверов", color = Moon, fontSize = 15.sp,
                         modifier = Modifier.clickable { refresh() }.padding(vertical = 6.dp))

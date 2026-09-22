@@ -19,7 +19,10 @@ import io.nekohasekai.libbox.Libbox
 import io.nekohasekai.libbox.OverrideOptions
 import io.nekohasekai.libbox.SystemProxyStatus
 import io.nekohasekai.libbox.TunOptions
+import net.noctilis.app.Api
 import net.noctilis.app.ConfigBuilder
+import net.noctilis.app.Reminder
+import org.json.JSONObject
 import net.noctilis.app.MainActivity
 import net.noctilis.app.Prefs
 import net.noctilis.app.R
@@ -77,6 +80,7 @@ class VPNService : VpnService(), PlatformInterfaceWrapper, CommandServerHandler 
                 CoreClient.start()
                 VpnState.set(VpnStatus.Connected)
                 Prefs.wantConnected = true
+                startReminderLoop()
             } catch (e: Exception) {
                 Log.e("NOCTILIS", "start", e)
                 LogBuffer.add("app", "ошибка старта: $e")
@@ -107,7 +111,28 @@ class VPNService : VpnService(), PlatformInterfaceWrapper, CommandServerHandler 
         }
     }
 
+    @Volatile private var reminderThread: Thread? = null
+
+    /** Пока туннель включён — раз в 6 часов свежие данные аккаунта и напоминание об окончании. */
+    private fun startReminderLoop() {
+        if (reminderThread != null) return
+        reminderThread = thread(name = "noctilis-reminder", isDaemon = true) {
+            while (commandServer != null) {
+                try { Thread.sleep(6 * 3600 * 1000L) } catch (_: InterruptedException) { break }
+                if (commandServer == null) break
+                try {
+                    val t = Prefs.token ?: continue
+                    val me = Api.me(t)
+                    Prefs.me = me.toString()
+                    Reminder.check(this, me)
+                } catch (_: Exception) {}
+            }
+            reminderThread = null
+        }
+    }
+
     private fun cleanup() {
+        reminderThread?.interrupt()
         CoreClient.stop()
         val server = commandServer
         commandServer = null
