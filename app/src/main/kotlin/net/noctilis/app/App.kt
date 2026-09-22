@@ -31,11 +31,15 @@ class App : Application() {
         Prefs.init(this)
         try {
             val work = filesDir.resolve("work").also { it.mkdirs() }
+            // libbox 1.14: пути + версия приложения; командный сервер слушает unix-сокет в basePath
             Libbox.setup(SetupOptions().also {
                 it.basePath = filesDir.path
                 it.workingPath = work.path
                 it.tempPath = cacheDir.path
                 it.fixAndroidStack = false
+                it.logMaxLines = 300
+                it.appVersion = BuildConfig.VERSION_NAME
+                it.appMarketingVersion = BuildConfig.VERSION_NAME
             })
         } catch (e: Exception) {
             Log.e("NOCTILIS", "libbox setup", e)

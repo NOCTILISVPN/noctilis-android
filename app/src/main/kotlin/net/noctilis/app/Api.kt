@@ -9,7 +9,7 @@ import java.net.URL
 
 class ApiException(val code: Int, message: String) : IOException(message)
 
-/** Серверная часть: xui-api на KZ, наружу через app.noctilis.net/app/* (Литва → KZ). */
+/** Серверная часть: xui-api на KZ, наружу через app.noctilis.net (путь /app, Литва → KZ). */
 object Api {
     private const val BASE = "https://app.noctilis.net/app"
     private val ua = "noctilis-android/" + BuildConfig.VERSION_NAME

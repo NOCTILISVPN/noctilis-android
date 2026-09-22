@@ -13,10 +13,12 @@ import android.net.VpnService
 import android.os.Build
 import android.os.ParcelFileDescriptor
 import android.util.Log
-import io.nekohasekai.libbox.BoxService
+import io.nekohasekai.libbox.CommandServer
+import io.nekohasekai.libbox.CommandServerHandler
 import io.nekohasekai.libbox.Libbox
+import io.nekohasekai.libbox.OverrideOptions
+import io.nekohasekai.libbox.SystemProxyStatus
 import io.nekohasekai.libbox.TunOptions
-import net.noctilis.app.App
 import net.noctilis.app.ConfigBuilder
 import net.noctilis.app.MainActivity
 import net.noctilis.app.Prefs
@@ -24,7 +26,11 @@ import net.noctilis.app.R
 import java.net.InetAddress
 import kotlin.concurrent.thread
 
-class VPNService : VpnService(), PlatformInterfaceWrapper {
+/**
+ * Туннель: VpnService Android + ядро sing-box через CommandServer (libbox 1.14).
+ * Управление: ACTION_START / ACTION_STOP. Состояние — VpnState.
+ */
+class VPNService : VpnService(), PlatformInterfaceWrapper, CommandServerHandler {
 
     companion object {
         const val ACTION_START = "net.noctilis.app.START"
@@ -33,17 +39,15 @@ class VPNService : VpnService(), PlatformInterfaceWrapper {
         private const val NOTIFY_ID = 1
 
         fun start(ctx: Context) {
-            val i = Intent(ctx, VPNService::class.java).setAction(ACTION_START)
-            ctx.startForegroundService(i)
+            ctx.startForegroundService(Intent(ctx, VPNService::class.java).setAction(ACTION_START))
         }
 
         fun stop(ctx: Context) {
-            val i = Intent(ctx, VPNService::class.java).setAction(ACTION_STOP)
-            ctx.startService(i)
+            ctx.startService(Intent(ctx, VPNService::class.java).setAction(ACTION_STOP))
         }
     }
 
-    private var box: BoxService? = null
+    private var commandServer: CommandServer? = null
     private var tunFd: ParcelFileDescriptor? = null
     @Volatile private var busy = false
 
@@ -56,7 +60,7 @@ class VPNService : VpnService(), PlatformInterfaceWrapper {
     }
 
     private fun startVpn() {
-        if (box != null || busy) return
+        if (commandServer != null || busy) return
         busy = true
         VpnState.set(VpnStatus.Starting)
         showForeground()
@@ -65,9 +69,10 @@ class VPNService : VpnService(), PlatformInterfaceWrapper {
                 val serverCfg = Prefs.config ?: error("нет конфигурации — открой приложение")
                 val cfg = ConfigBuilder.build(serverCfg, Prefs.excluded, Prefs.server)
                 DefaultNetworkMonitor.start()
-                val service = Libbox.newService(cfg, this)
-                service.start()
-                box = service
+                val server = CommandServer(this, this)
+                server.start()
+                commandServer = server
+                server.startOrReloadService(cfg, OverrideOptions())
                 VpnState.set(VpnStatus.Connected)
                 Prefs.wantConnected = true
             } catch (e: Exception) {
@@ -100,8 +105,12 @@ class VPNService : VpnService(), PlatformInterfaceWrapper {
     }
 
     private fun cleanup() {
-        try { box?.close() } catch (e: Exception) { Log.w("NOCTILIS", "close", e) }
-        box = null
+        val server = commandServer
+        commandServer = null
+        if (server != null) {
+            try { server.closeService() } catch (e: Exception) { Log.w("NOCTILIS", "closeService", e) }
+            try { server.close() } catch (e: Exception) { Log.w("NOCTILIS", "close", e) }
+        }
         try { tunFd?.close() } catch (_: Exception) {}
         tunFd = null
         DefaultNetworkMonitor.setListener(null)
@@ -117,6 +126,33 @@ class VPNService : VpnService(), PlatformInterfaceWrapper {
         if (VpnState.status.value !is VpnStatus.Error) VpnState.set(VpnStatus.Disconnected)
         super.onDestroy()
     }
+
+    // ── CommandServerHandler (ядро просит остановиться/перезагрузиться) ──
+
+    override fun serviceStop() {
+        stopVpn()
+    }
+
+    override fun serviceReload() {
+        val server = commandServer ?: return
+        val serverCfg = Prefs.config ?: return
+        server.startOrReloadService(ConfigBuilder.build(serverCfg, Prefs.excluded, Prefs.server), OverrideOptions())
+    }
+
+    override fun getSystemProxyStatus(): SystemProxyStatus = SystemProxyStatus().also {
+        it.available = false
+        it.enabled = false
+    }
+
+    override fun setSystemProxyEnabled(enabled: Boolean) {}
+
+    override fun triggerNativeCrash() {}
+
+    override fun writeDebugMessage(message: String?) {
+        if (message != null) Log.d("sing-box", message)
+    }
+
+    override fun connectSSHAgent(): Int = -1
 
     // ── интерфейс ядра ──
 
@@ -137,7 +173,10 @@ class VPNService : VpnService(), PlatformInterfaceWrapper {
         while (inet6.hasNext()) { val a = inet6.next(); builder.addAddress(a.address(), a.prefix()) }
 
         if (options.autoRoute) {
-            builder.addDnsServer(options.dnsServerAddress.value)
+            if (options.dnsMode.value != Libbox.DNSModeDisabled) {
+                val dns = options.dnsServerAddress
+                while (dns.hasNext()) builder.addDnsServer(dns.next())
+            }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 val r4 = options.inet4RouteAddress
                 if (r4.hasNext()) {

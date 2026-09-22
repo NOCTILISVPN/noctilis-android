@@ -4,13 +4,21 @@ import android.content.pm.PackageManager
 import android.net.NetworkCapabilities
 import android.os.Build
 import android.os.Process
+import android.provider.Settings
 import android.system.OsConstants
 import android.util.Log
+import io.nekohasekai.libbox.BridgeOptions
+import io.nekohasekai.libbox.BridgeSession
+import io.nekohasekai.libbox.ConnectionOwner
 import io.nekohasekai.libbox.InterfaceUpdateListener
 import io.nekohasekai.libbox.Libbox
+import io.nekohasekai.libbox.LocalDNSTransport
+import io.nekohasekai.libbox.NeighborUpdateListener
 import io.nekohasekai.libbox.NetworkInterfaceIterator
 import io.nekohasekai.libbox.Notification
 import io.nekohasekai.libbox.PlatformInterface
+import io.nekohasekai.libbox.PlatformUser
+import io.nekohasekai.libbox.ShellSession
 import io.nekohasekai.libbox.StringIterator
 import io.nekohasekai.libbox.TunOptions
 import io.nekohasekai.libbox.WIFIState
@@ -22,8 +30,8 @@ import java.net.NetworkInterface
 import io.nekohasekai.libbox.NetworkInterface as LibboxNetworkInterface
 
 /**
- * Платформенные вызовы ядра sing-box (libbox 1.11.15). За основу взята реализация
- * официального клиента sing-box для Android (коммит 38b2996, июль 2025) без root/shell.
+ * Платформенные вызовы ядра sing-box (libbox 1.14). За основу взят официальный клиент
+ * sing-box для Android (сентябрь 2026) без root, shell и «моста» — нам они не нужны.
  */
 interface PlatformInterfaceWrapper : PlatformInterface {
 
@@ -38,30 +46,18 @@ interface PlatformInterfaceWrapper : PlatformInterface {
     override fun findConnectionOwner(
         ipProtocol: Int, sourceAddress: String, sourcePort: Int,
         destinationAddress: String, destinationPort: Int,
-    ): Int {
+    ): ConnectionOwner {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) error("android: unsupported")
         val uid = App.connectivity.getConnectionOwnerUid(
             ipProtocol, InetSocketAddress(sourceAddress, sourcePort), InetSocketAddress(destinationAddress, destinationPort),
         )
         if (uid == Process.INVALID_UID) error("android: connection owner not found")
-        return uid
-    }
-
-    override fun packageNameByUid(uid: Int): String {
         val packages = App.pm.getPackagesForUid(uid)
-        if (packages.isNullOrEmpty()) error("android: package not found")
-        return packages[0]
-    }
-
-    @Suppress("DEPRECATION")
-    override fun uidByPackageName(packageName: String): Int = try {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            App.pm.getPackageUid(packageName, PackageManager.PackageInfoFlags.of(0))
-        } else {
-            App.pm.getPackageUid(packageName, 0)
-        }
-    } catch (_: PackageManager.NameNotFoundException) {
-        error("android: package not found")
+        val owner = ConnectionOwner()
+        owner.userId = uid
+        owner.userName = packages?.firstOrNull() ?: ""
+        owner.setAndroidPackageNames(StringArray((packages?.toList() ?: emptyList()).iterator()))
+        return owner
     }
 
     override fun startDefaultInterfaceMonitor(listener: InterfaceUpdateListener) {
@@ -84,6 +80,14 @@ interface PlatformInterfaceWrapper : PlatformInterface {
             boxInterface.name = linkProperties.interfaceName
             val networkInterface = networkInterfaces.find { it.name == boxInterface.name } ?: continue
             boxInterface.dnsServer = StringArray(linkProperties.dnsServers.mapNotNull { it.hostAddress }.iterator())
+            boxInterface.gateway = StringArray(
+                linkProperties.routes
+                    .filter { it.destination.prefixLength == 0 }
+                    .mapNotNull { it.gateway }
+                    .filterNot { it.isAnyLocalAddress }
+                    .mapNotNull { it.hostAddress }
+                    .iterator(),
+            )
             boxInterface.type = when {
                 caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> Libbox.InterfaceTypeWIFI
                 caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> Libbox.InterfaceTypeCellular
@@ -122,11 +126,43 @@ interface PlatformInterfaceWrapper : PlatformInterface {
         return WIFIState(ssid, info.bssid ?: "")
     }
 
-    override fun writeLog(message: String) {
-        Log.i("sing-box", message)
-    }
+    /** DNS типа "local" в конфигурации не используем — узлы приходят готовыми адресами. */
+    override fun localDNSTransport(): LocalDNSTransport? = null
 
     override fun sendNotification(notification: Notification) {}
+
+    override fun cancelNotification(identifier: String, typeID: Int) {}
+
+    override fun startNeighborMonitor(listener: NeighborUpdateListener?) {}
+
+    override fun closeNeighborMonitor(listener: NeighborUpdateListener?) {}
+
+    override fun registerMyInterface(name: String?) {}
+
+    // Shell, SSH и «мост» — возможности официального клиента для root-устройств; у нас их нет.
+    override fun usePlatformShell(): Boolean = false
+
+    override fun checkPlatformShell() {
+        error("not supported")
+    }
+
+    override fun openShellSession(
+        user: PlatformUser?, command: String?, environ: StringIterator?, term: String?, rows: Int, cols: Int,
+    ): ShellSession = error("not supported")
+
+    override fun lookupUser(username: String?): PlatformUser = error("not supported")
+
+    override fun lookupSFTPServer(): String = error("not supported")
+
+    override fun readSystemSSHHostKey(): String = error("not supported")
+
+    override fun tailscaleHostname(): String =
+        Settings.Global.getString(App.instance.contentResolver, Settings.Global.DEVICE_NAME)?.takeIf { it.isNotBlank() }
+            ?: "${Build.MANUFACTURER} ${Build.MODEL}"
+
+    override fun usePlatformBridge(): Boolean = false
+
+    override fun createBridge(options: BridgeOptions?): BridgeSession = error("not supported")
 
     class InterfaceArray(private val iterator: Iterator<LibboxNetworkInterface>) : NetworkInterfaceIterator {
         override fun hasNext(): Boolean = iterator.hasNext()
