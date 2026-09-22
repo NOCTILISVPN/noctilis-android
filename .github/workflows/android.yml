@@ -2,6 +2,8 @@ name: Сборка APK
 
 # Каждый push в main собирает APK и кладёт его в Releases.
 # На KZ-сервере Android SDK не влезает (4 ГБ диска, 3 ГБ RAM) — собираем здесь.
+# Ядро туннеля libbox (sing-box) собирается из исходников отдельной задачей и кэшируется
+# по версии: пересборка только при смене SINGBOX_VERSION.
 
 on:
   push:
@@ -11,12 +13,76 @@ on:
 permissions:
   contents: write
 
+env:
+  SINGBOX_VERSION: v1.11.15
+  GOMOBILE_VERSION: v0.1.4
+
 jobs:
+  libbox:
+    name: Ядро sing-box (libbox.aar)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Кэш libbox
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: libbox.aar
+          key: libbox-android-${{ env.SINGBOX_VERSION }}-gomobile-${{ env.GOMOBILE_VERSION }}-v1
+
+      - name: Исходники sing-box
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: SagerNet/sing-box
+          ref: ${{ env.SINGBOX_VERSION }}
+          path: sing-box
+
+      - name: Go
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+          cache-dependency-path: sing-box/go.sum
+
+      - name: JDK 17
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Собрать libbox
+        if: steps.cache.outputs.cache-hit != 'true'
+        working-directory: sing-box
+        run: |
+          go install -v github.com/sagernet/gomobile/cmd/gomobile@${{ env.GOMOBILE_VERSION }}
+          go install -v github.com/sagernet/gomobile/cmd/gobind@${{ env.GOMOBILE_VERSION }}
+          export PATH="$PATH:$(go env GOPATH)/bin"
+          ls "$ANDROID_HOME/ndk" || true
+          go run ./cmd/internal/build_libbox -target android
+          ls -la libbox.aar
+          cp libbox.aar ../libbox.aar
+
+      - name: Артефакт libbox
+        uses: actions/upload-artifact@v4
+        with:
+          name: libbox
+          path: libbox.aar
+
   build:
+    name: APK
+    needs: libbox
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
+
+      - name: libbox.aar
+        uses: actions/download-artifact@v4
+        with:
+          name: libbox
+          path: app/libs
 
       - name: JDK 17
         uses: actions/setup-java@v4
