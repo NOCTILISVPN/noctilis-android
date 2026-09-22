@@ -24,9 +24,8 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Android SDK
-        uses: android-actions/setup-android@v3
-
+      # Android SDK уже стоит на образе ubuntu-latest (ANDROID_HOME задан, лицензии приняты) —
+      # AGP докачает недостающую платформу сам; отдельный шаг установки SDK падал (22.09).
       - name: Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
