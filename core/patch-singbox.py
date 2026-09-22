@@ -50,3 +50,32 @@ patched = patched.replace(old_key, "\tecdheKey := keyShareKeys.Ecdhe\n\tif ecdhe
                                    "\tif ecdheKey == nil {\n\t\treturn nil, E.New(\"nil ecdheKey\")\n\t}\n", 1)
 open(path, "w", encoding="utf-8").write(patched)
 print("патч наложен:", path)
+
+# ── 4) Сборка libbox: только arm64 и без тяжёлых модулей ──────────────────────────
+# Штатный build_libbox тянет cronet (naive), tailscale, wireguard, openvpn, openconnect, usbip
+# и собирает все архитектуры: libbox.so выходил 77 МБ, APK 84–102 МБ, Chrome на телефоне вис
+# на проверке (22.09). Нам нужны только VLESS/Reality и Hysteria2.
+bp = root + "/cmd/internal/build_libbox/main.go"
+b = open(bp, encoding="utf-8").read()
+old_tags = ('\tsharedTags = append(sharedTags, "with_gvisor", "with_quic", "with_wireguard", "with_utls", '
+            '"with_naive_outbound", "with_clash_api", "with_usbip", "with_openvpn", "with_openconnect", '
+            '"badlinkname", "tfogo_checklinkname0")\n')
+if old_tags not in b:
+    sys.exit("патч: строка sharedTags в build_libbox не найдена — сверить cmd/internal/build_libbox/main.go")
+b = b.replace(old_tags, '\tsharedTags = append(sharedTags, "with_gvisor", "with_quic", "with_utls", "with_clash_api", '
+                        '"badlinkname", "tfogo_checklinkname0") // NOCTILIS: без cronet/wireguard/openvpn/usbip\n', 1)
+import re as _re
+b2 = _re.sub(r'\tsharedTags = append\(sharedTags, "with_tailscale".*\n', "\t// NOCTILIS: tailscale не нужен\n", b, count=1)
+if b2 == b:
+    sys.exit("патч: строка with_tailscale в build_libbox не найдена")
+b = b2
+if '\treturn "android"\n' not in b:
+    sys.exit("патч: bindTarget android не найден")
+b = b.replace('\treturn "android"\n', '\treturn "android/arm64" // NOCTILIS: только arm64\n', 1)
+# legacy-вариант (SDK 21) нам не нужен — вдвое быстрее сборка
+m2 = _re.search(r"\n\t// Build legacy variant \(SDK 21, no naive outbound\)\n(?:.*\n)*?\t\}, bindTarget\)\n", b)
+if not m2:
+    sys.exit("патч: блок legacy-варианта в build_libbox не найден")
+b = b[:m2.start()] + "\n\t// NOCTILIS: legacy-вариант (SDK 21) не собираем\n" + b[m2.end():]
+open(bp, "w", encoding="utf-8").write(b)
+print("патч наложен:", bp)

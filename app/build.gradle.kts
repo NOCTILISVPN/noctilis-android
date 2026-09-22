@@ -41,12 +41,12 @@ android {
         buildConfig = true
     }
     packaging {
-        jniLibs.useLegacyPackaging = false   // сжатые .so в APK
+        jniLibs.useLegacyPackaging = true    // .so в APK сжат: файл для скачивания меньше
     }
 }
 
 dependencies {
-    // Ядро туннеля: sing-box 1.11.15, собирается в CI из исходников (job libbox)
+    // Ядро туннеля: sing-box 1.14.1 с патчем core/patch-singbox.py, собирается в CI (job libbox)
     implementation(files("libs/libbox.aar"))
 
     val composeBom = platform("androidx.compose:compose-bom:2024.12.01")
