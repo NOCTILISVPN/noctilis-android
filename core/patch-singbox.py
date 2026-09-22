@@ -31,5 +31,22 @@ if "X25519MLKEM768" in patched:
 # common.Filter был единственным использованием пакета common — иначе «imported and not used»
 if "common." not in patched.replace("sing/common", ""):
     patched = patched.replace('\t"github.com/sagernet/sing/common"\n', "", 1)
+
+# 2) Версия клиента в session id. sing-box представляется как REALITY-клиент 1.8.1, а Xray
+# с сентября 2026 отбрасывает старых клиентов как «устаревших». mihomo (PR #2983) шлёт
+# версию Xray-core 26.7.11 — делаем так же. Убрать патч, когда sing-box починит #4520.
+old_ver = "\thello.SessionId[0] = 1\n\thello.SessionId[1] = 8\n\thello.SessionId[2] = 1\n"
+if old_ver not in patched:
+    sys.exit("патч: строки версии клиента (1.8.1) не найдены — сверить reality_client.go")
+patched = patched.replace(old_ver, "\t// NOCTILIS: версия клиента как у Xray-core 26.7.11 (см. core/patch-singbox.py)\n"
+                                   "\thello.SessionId[0] = 26\n\thello.SessionId[1] = 7\n\thello.SessionId[2] = 11\n", 1)
+
+# 3) Ключ для auth_key: если в приветствии только гибридный X25519MLKEM768 share, X25519-часть
+# лежит в MlkemEcdhe (так делает mihomo).
+old_key = "\tecdheKey := keyShareKeys.Ecdhe\n\tif ecdheKey == nil {\n\t\treturn nil, E.New(\"nil ecdheKey\")\n\t}\n"
+if old_key not in patched:
+    sys.exit("патч: блок ecdheKey не найден — сверить reality_client.go")
+patched = patched.replace(old_key, "\tecdheKey := keyShareKeys.Ecdhe\n\tif ecdheKey == nil {\n\t\tecdheKey = keyShareKeys.MlkemEcdhe\n\t}\n"
+                                   "\tif ecdheKey == nil {\n\t\treturn nil, E.New(\"nil ecdheKey\")\n\t}\n", 1)
 open(path, "w", encoding="utf-8").write(patched)
 print("патч наложен:", path)
