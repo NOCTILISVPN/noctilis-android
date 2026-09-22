@@ -227,8 +227,8 @@ class MainActivity : ComponentActivity() {
                     acc == null && loading -> "Подключаемся к серверу…"
                     acc == null -> "Аккаунт не создан"
                     !active -> "Подписка закончилась"
-                    days <= 1 -> "Остался последний день · ${acc.optInt("balance_rub")} ₽"
-                    else -> "Осталось дней: $days · ${acc.optInt("balance_rub")} ₽"
+                    days <= 1 -> "Остался последний день"
+                    else -> "Осталось дней: $days"
                 },
                 color = if (acc != null && (!active || days <= 3)) Warn else Fog, fontSize = 15.sp,
             )
@@ -555,7 +555,11 @@ class MainActivity : ComponentActivity() {
         Column(Modifier.fillMaxSize().padding(20.dp)) {
             Header("Оплата", onBack)
             Spacer(Modifier.height(10.dp))
-            Text(if (active) "Осталось дней: $days · баланс ${acc?.optInt("balance_rub") ?: 0} ₽" else "Подписка закончилась", color = if (active && days > 3) Color.White else Warn, fontSize = 18.sp)
+            Text(if (active) "Осталось дней: $days" else "Подписка закончилась", color = if (active && days > 3) Color.White else Warn, fontSize = 18.sp)
+            if (active) {
+                Spacer(Modifier.height(4.dp))
+                Text("Баланс: ${acc?.optInt("balance_rub") ?: 0} ₽ — это оплаченные дни × 5 ₽", color = Fog, fontSize = 14.sp)
+            }
             Spacer(Modifier.height(6.dp))
             Text("$price ₽ за 30 дней · 5 ₽ в день. Оплата картой, откроется страница оплаты. Дни добавятся к текущему сроку.",
                 color = Fog, fontSize = 14.sp)
