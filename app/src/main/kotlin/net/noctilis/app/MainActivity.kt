@@ -69,6 +69,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import net.noctilis.app.vpn.CoreClient
 import net.noctilis.app.vpn.LogBuffer
+import net.noctilis.app.vpn.ProbeService
 import net.noctilis.app.vpn.VPNService
 import net.noctilis.app.vpn.VpnState
 import net.noctilis.app.vpn.VpnStatus
@@ -326,11 +327,13 @@ class MainActivity : ComponentActivity() {
                 item {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Text("Сервер", color = Fog, fontSize = 13.sp, modifier = Modifier.weight(1f))
-                        val canTest = status is VpnStatus.Connected && !testing
+                        val canTest = !testing && (status is VpnStatus.Connected || status is VpnStatus.Disconnected || status is VpnStatus.Error)
                         Text(
-                            when { testing -> "Проверяем…"; status is VpnStatus.Connected -> "Проверить пинг"; else -> "Пинг — при включённом VPN" },
+                            if (testing) "Проверяем…" else "Проверить пинг",
                             color = if (canTest) Moon else Fog, fontSize = 13.sp,
-                            modifier = Modifier.clickable(enabled = canTest) { CoreClient.testAll() }.padding(vertical = 6.dp),
+                            modifier = Modifier.clickable(enabled = canTest) {
+                                if (status is VpnStatus.Connected) CoreClient.testAll() else ProbeService.probe()
+                            }.padding(vertical = 6.dp),
                         )
                     }
                     Spacer(Modifier.height(4.dp))

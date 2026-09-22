@@ -50,8 +50,7 @@ object CoreClient : CommandClientHandler {
         val c = client ?: return
         client = null
         try { c.disconnect() } catch (_: Exception) {}
-        _pings.value = emptyMap()
-        _testing.value = false
+        _testing.value = false   // замеры оставляем — их показываем и после выключения
     }
 
     val isConnected: Boolean get() = client != null
