@@ -66,16 +66,36 @@ jobs:
       - name: Собрать libbox и тестовый бинарь для Linux
         if: steps.cache.outputs.cache-hit != 'true'
         working-directory: sing-box
+        shell: bash
         run: |
-          go install -v github.com/sagernet/gomobile/cmd/gomobile@${{ env.GOMOBILE_VERSION }}
-          go install -v github.com/sagernet/gomobile/cmd/gobind@${{ env.GOMOBILE_VERSION }}
-          export PATH="$PATH:$(go env GOPATH)/bin"
-          ls "$ANDROID_HOME/ndk" || true
-          # тот же патченый код в виде обычного бинаря — для проверки Reality с сервера
-          CGO_ENABLED=0 go build -v -trimpath -tags "${{ env.CORE_TAGS }}" -o ../sing-box-linux-amd64 ./cmd/sing-box
-          go run ./cmd/internal/build_libbox -target android
-          ls -la libbox.aar
-          cp libbox.aar ../libbox.aar
+          set -o pipefail
+          {
+            go version; java -version 2>&1 | head -1
+            go install -v github.com/sagernet/gomobile/cmd/gomobile@${{ env.GOMOBILE_VERSION }}
+            go install -v github.com/sagernet/gomobile/cmd/gobind@${{ env.GOMOBILE_VERSION }}
+            export PATH="$PATH:$(go env GOPATH)/bin"
+            ls "$ANDROID_HOME/ndk" || true
+            # тот же патченый код в виде обычного бинаря — для проверки Reality с сервера
+            CGO_ENABLED=0 go build -v -trimpath -tags "${{ env.CORE_TAGS }}" -o ../sing-box-linux-amd64 ./cmd/sing-box
+            go run ./cmd/internal/build_libbox -target android
+            ls -la libbox.aar
+            cp libbox.aar ../libbox.aar
+          } 2>&1 | tee ../core-build.log
+
+      # Лог сборки ядра при падении — в ветку ci-logs (см. ниже, та же причина: логи Actions без входа не читаются)
+      - name: Лог ядра при падении
+        if: failure()
+        shell: bash
+        run: |
+          mkdir -p /tmp/ci-logs && cp core-build.log /tmp/ci-logs/core-${{ github.run_number }}.log
+          rm -rf sing-box
+          git config user.name "ci" && git config user.email "ci@noctilis.net"
+          git checkout --orphan ci-logs
+          git rm -rfq . || true
+          cp /tmp/ci-logs/*.log .
+          git add *.log
+          git commit -qm "лог ядра ${{ github.run_number }}"
+          git push -f origin ci-logs
 
       - name: Артефакт ядра
         uses: actions/upload-artifact@v4
