@@ -63,6 +63,12 @@ jobs:
           distribution: temurin
           java-version: "17"
 
+      # build_libbox ищет NDK ровно 28.0.13004108; с NDK 27 (стоит на раннере) линковка
+      # libbox падает на cronet (unknown relocation 315) — проверено 22.09.
+      - name: NDK 28
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;28.0.13004108" > /dev/null
+
       - name: Собрать libbox и тестовый бинарь для Linux
         if: steps.cache.outputs.cache-hit != 'true'
         working-directory: sing-box
