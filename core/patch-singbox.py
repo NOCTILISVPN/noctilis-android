@@ -28,5 +28,8 @@ if not m:
 patched = src[: m.start()] + "\t// NOCTILIS: фильтр пост-квантовой группы в key_share убран (см. core/patch-singbox.py)\n\terr = uConn.BuildHandshakeState()\n" + src[m.end():]
 if "X25519MLKEM768" in patched:
     sys.exit("патч: упоминание X25519MLKEM768 осталось — проверить вручную")
+# common.Filter был единственным использованием пакета common — иначе «imported and not used»
+if "common." not in patched.replace("sing/common", ""):
+    patched = patched.replace('\t"github.com/sagernet/sing/common"\n', "", 1)
 open(path, "w", encoding="utf-8").write(patched)
 print("патч наложен:", path)
