@@ -68,6 +68,7 @@ class VPNService : VpnService(), PlatformInterfaceWrapper, CommandServerHandler 
             try {
                 val serverCfg = Prefs.config ?: error("нет конфигурации — открой приложение")
                 val cfg = ConfigBuilder.build(serverCfg, Prefs.excluded, Prefs.server)
+                LogBuffer.add("app", "старт: сервер=${Prefs.server}, исключений=${Prefs.excluded.size}, конфиг ${cfg.length} байт")
                 DefaultNetworkMonitor.start()
                 val server = CommandServer(this, this)
                 server.start()
@@ -77,6 +78,7 @@ class VPNService : VpnService(), PlatformInterfaceWrapper, CommandServerHandler 
                 Prefs.wantConnected = true
             } catch (e: Exception) {
                 Log.e("NOCTILIS", "start", e)
+                LogBuffer.add("app", "ошибка старта: $e")
                 VpnState.set(VpnStatus.Error(e.message ?: "не удалось запустить"))
                 cleanup()
                 stopForeground(STOP_FOREGROUND_REMOVE)
@@ -149,7 +151,10 @@ class VPNService : VpnService(), PlatformInterfaceWrapper, CommandServerHandler 
     override fun triggerNativeCrash() {}
 
     override fun writeDebugMessage(message: String?) {
-        if (message != null) Log.d("sing-box", message)
+        if (message != null) {
+            Log.d("sing-box", message)
+            LogBuffer.add("core", message)
+        }
     }
 
     override fun connectSSHAgent(): Int = -1
@@ -157,7 +162,7 @@ class VPNService : VpnService(), PlatformInterfaceWrapper, CommandServerHandler 
     // ── интерфейс ядра ──
 
     override fun autoDetectInterfaceControl(fd: Int) {
-        protect(fd)
+        if (!protect(fd)) LogBuffer.add("app", "protect($fd) вернул false")
     }
 
     override fun openTun(options: TunOptions): Int {
@@ -213,6 +218,7 @@ class VPNService : VpnService(), PlatformInterfaceWrapper, CommandServerHandler 
 
         val pfd = builder.establish() ?: error("android: VPN не разрешён или отозван")
         tunFd = pfd
+        LogBuffer.add("app", "tun открыт: mtu=${options.mtu}, autoRoute=${options.autoRoute}, fd=${pfd.fd}")
         return pfd.fd
     }
 

@@ -67,6 +67,7 @@ import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import net.noctilis.app.vpn.LogBuffer
 import net.noctilis.app.vpn.VPNService
 import net.noctilis.app.vpn.VpnState
 import net.noctilis.app.vpn.VpnStatus
@@ -336,6 +337,23 @@ class MainActivity : ComponentActivity() {
                     Spacer(Modifier.height(16.dp))
                     Text("Обновить список серверов", color = Moon, fontSize = 15.sp,
                         modifier = Modifier.clickable { refresh() }.padding(vertical = 6.dp))
+                    Spacer(Modifier.height(8.dp))
+                    var diagState by remember { mutableStateOf("") }
+                    Text(if (diagState.isEmpty()) "Отправить диагностику" else diagState, color = Moon, fontSize = 15.sp,
+                        modifier = Modifier.clickable {
+                            diagState = "Отправляем…"
+                            Thread {
+                                val r = try {
+                                    val t = Prefs.token
+                                    if (t == null) "Нет аккаунта" else {
+                                        Api.diag(t, LogBuffer.dump(), Prefs.server, Prefs.excluded.size, VpnState.status.value.toString())
+                                        "Диагностика отправлена"
+                                    }
+                                } catch (e: Exception) { "Не удалось отправить: ${e.message}" }
+                                runOnUiThread { diagState = r }
+                            }.start()
+                        }.padding(vertical = 6.dp))
+                    Text("Журнал ядра уйдёт на наш сервер, чтобы разобрать «не подключается».", color = Fog, fontSize = 12.sp)
                     Spacer(Modifier.height(24.dp))
                     Text("Версия ${BuildConfig.VERSION_NAME} · ядро sing-box", color = Fog, fontSize = 12.sp)
                 }

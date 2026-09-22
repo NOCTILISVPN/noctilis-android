@@ -50,4 +50,18 @@ object Api {
     fun me(token: String): JSONObject = call("GET", "/me", token = token)
 
     fun config(token: String): JSONObject = call("GET", "/config", token = token)
+
+    /** Журнал ядра и состояние — на сервер, чтобы разбирать «не подключается» без adb. */
+    fun diag(token: String, log: String, server: String, excludedCount: Int, status: String, note: String = ""): JSONObject {
+        val body = JSONObject()
+            .put("log", log.takeLast(150_000))
+            .put("app_version", BuildConfig.VERSION_NAME)
+            .put("model", (Build.MANUFACTURER + " " + Build.MODEL).trim())
+            .put("os", "Android " + Build.VERSION.RELEASE)
+            .put("server", server)
+            .put("excluded_count", excludedCount)
+            .put("status", status)
+            .put("note", note)
+        return call("POST", "/diag", body, token)
+    }
 }
