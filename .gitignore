@@ -1,0 +1,24 @@
+# сборка
+build/
+app/build/
+.gradle/
+*.apk
+*.aab
+local.properties
+.kotlin/
+
+# ключи и секреты — никогда в репозиторий
+*.jks
+*.keystore
+*.pem
+*.env
+keystore.properties
+
+# ссылки на заметки графа (живут на KZ, в репозитории не нужны)
+заметки/
+
+# IDE / система
+.idea/
+*.iml
+.DS_Store
+__pycache__/
