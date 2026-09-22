@@ -22,11 +22,25 @@ android {
         }
     }
 
+    // Постоянный ключ подписи: CI расшифровывает core/noctilis-keystore.p12.enc паролем из
+    // секрета KEYSTORE_PASS и передаёт путь/пароль через переменные окружения. Без них —
+    // отладочный ключ раннера (обновление поверх не встанет).
+    val ksFile = System.getenv("KEYSTORE_FILE")?.let { file(it) }?.takeIf { it.exists() }
+    val ksPass = System.getenv("KEYSTORE_PASS")
+    if (ksFile != null && !ksPass.isNullOrEmpty()) {
+        signingConfigs.create("noctilis") {
+            storeFile = ksFile
+            storeType = "PKCS12"
+            storePassword = ksPass
+            keyAlias = "noctilis"
+            keyPassword = ksPass
+        }
+    }
     buildTypes {
         release {
             isMinifyEnabled = false
-            // пока нет боевого ключа подписи — подписываем отладочным, но сборка не debuggable
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = if (ksFile != null && !ksPass.isNullOrEmpty()) signingConfigs.getByName("noctilis")
+                            else signingConfigs.getByName("debug")
         }
     }
     compileOptions {

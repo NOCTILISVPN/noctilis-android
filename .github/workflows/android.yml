@@ -144,10 +144,24 @@ jobs:
         with:
           gradle-version: "8.10.2"
 
+      - name: Ключ подписи
+        env:
+          KEYSTORE_PASS: ${{ secrets.KEYSTORE_PASS }}
+        shell: bash
+        run: |
+          if [ -n "$KEYSTORE_PASS" ] && [ -f core/noctilis-keystore.p12.enc ]; then
+            openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -in core/noctilis-keystore.p12.enc -out "$RUNNER_TEMP/noctilis.p12" -pass env:KEYSTORE_PASS
+            echo "KEYSTORE_FILE=$RUNNER_TEMP/noctilis.p12" >> "$GITHUB_ENV"
+            echo "подпись: постоянный ключ"
+          else
+            echo "подпись: отладочный ключ раннера (нет секрета KEYSTORE_PASS или файла ключа)"
+          fi
+
       - name: Собрать APK
         env:
           APP_VERSION_CODE: ${{ github.run_number }}
           APP_VERSION_NAME: 0.0.${{ github.run_number }}
+          KEYSTORE_PASS: ${{ secrets.KEYSTORE_PASS }}
         shell: bash
         run: |
           set -o pipefail
