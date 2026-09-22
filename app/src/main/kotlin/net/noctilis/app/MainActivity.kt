@@ -67,6 +67,7 @@ import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import net.noctilis.app.vpn.CoreClient
 import net.noctilis.app.vpn.LogBuffer
 import net.noctilis.app.vpn.VPNService
 import net.noctilis.app.vpn.VpnState
@@ -123,6 +124,7 @@ class MainActivity : ComponentActivity() {
     private fun refresh(silent: Boolean = false) {
         if (loading) return
         loading = !silent
+        Thread { Updater.check() }.start()
         Thread {
             try {
                 var token = Prefs.token
@@ -228,6 +230,21 @@ class MainActivity : ComponentActivity() {
                 },
                 color = if (acc != null && (!active || days <= 3)) Warn else Fog, fontSize = 15.sp,
             )
+            val update by Updater.available.collectAsState()
+            val updState by Updater.state.collectAsState()
+            if (update != null) {
+                Spacer(Modifier.height(12.dp))
+                Box(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Panel)
+                        .clickable(enabled = updState.isEmpty()) { Updater.download(this@MainActivity, update!!) }
+                        .padding(14.dp),
+                ) {
+                    Text(
+                        if (updState.isEmpty()) "Доступна версия ${update!!.version} · нажмите, чтобы обновить" else updState,
+                        color = Moon, fontSize = 14.sp, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            }
             Spacer(Modifier.weight(1f))
 
             val (label, color) = when (status) {
@@ -299,25 +316,46 @@ class MainActivity : ComponentActivity() {
         val servers = remember(cfg) { if (cfg != null) ConfigBuilder.serverTags(cfg) else emptyList() }
         var server by remember { mutableStateOf(Prefs.server) }
         var autoStart by remember { mutableStateOf(Prefs.autoStart) }
+        val status by VpnState.status.collectAsState()
+        val pings by CoreClient.pings.collectAsState()
+        val testing by CoreClient.testing.collectAsState()
         val acc = account
         Column(Modifier.fillMaxSize().padding(20.dp)) {
             Header("Настройки", onBack)
             LazyColumn(Modifier.weight(1f)) {
                 item {
-                    Text("Сервер", color = Fog, fontSize = 13.sp)
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text("Сервер", color = Fog, fontSize = 13.sp, modifier = Modifier.weight(1f))
+                        val canTest = status is VpnStatus.Connected && !testing
+                        Text(
+                            when { testing -> "Проверяем…"; status is VpnStatus.Connected -> "Проверить пинг"; else -> "Пинг — при включённом VPN" },
+                            color = if (canTest) Moon else Fog, fontSize = 13.sp,
+                            modifier = Modifier.clickable(enabled = canTest) { CoreClient.testAll() }.padding(vertical = 6.dp),
+                        )
+                    }
                     Spacer(Modifier.height(4.dp))
                 }
                 items(listOf("auto") + servers) { tag ->
                     Row(
                         Modifier.fillMaxWidth().clickable {
-                            server = tag; Prefs.server = tag; restartIfRunning()
+                            server = tag; Prefs.server = tag
+                            if (!CoreClient.select(tag)) restartIfRunning()   // живой выбор; иначе — перезапуск
                         }.padding(vertical = 4.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         RadioButton(selected = server == tag, onClick = null,
                             colors = RadioButtonDefaults.colors(selectedColor = Moon, unselectedColor = Fog))
                         Spacer(Modifier.width(8.dp))
-                        Text(if (tag == "auto") "Автовыбор (самый быстрый)" else tag, color = Color.White, fontSize = 15.sp)
+                        Text(if (tag == "auto") "Автовыбор (самый быстрый)" else tag, color = Color.White, fontSize = 15.sp,
+                            modifier = Modifier.weight(1f))
+                        val p = pings[tag]
+                        if (p != null) {
+                            Text(
+                                if (p.delayMs > 0) "${p.delayMs} мс" else "нет ответа",
+                                color = when { p.delayMs <= 0 -> Warn; p.delayMs < 400 -> Color(0xFF4CD97B); else -> Color(0xFFFFC857) },
+                                fontSize = 13.sp,
+                            )
+                        }
                     }
                 }
                 item {

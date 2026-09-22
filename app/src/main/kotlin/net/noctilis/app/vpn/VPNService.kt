@@ -48,7 +48,6 @@ class VPNService : VpnService(), PlatformInterfaceWrapper, CommandServerHandler 
     }
 
     private var commandServer: CommandServer? = null
-    private val logClient = LogClient()
     private var tunFd: ParcelFileDescriptor? = null
     @Volatile private var busy = false
 
@@ -75,7 +74,7 @@ class VPNService : VpnService(), PlatformInterfaceWrapper, CommandServerHandler 
                 server.start()
                 commandServer = server
                 server.startOrReloadService(cfg, OverrideOptions())
-                logClient.start()
+                CoreClient.start()
                 VpnState.set(VpnStatus.Connected)
                 Prefs.wantConnected = true
             } catch (e: Exception) {
@@ -109,7 +108,7 @@ class VPNService : VpnService(), PlatformInterfaceWrapper, CommandServerHandler 
     }
 
     private fun cleanup() {
-        logClient.stop()
+        CoreClient.stop()
         val server = commandServer
         commandServer = null
         if (server != null) {
