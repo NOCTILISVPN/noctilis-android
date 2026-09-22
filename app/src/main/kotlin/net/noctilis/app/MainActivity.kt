@@ -383,12 +383,12 @@ class MainActivity : ComponentActivity() {
                     Text("У меня уже есть подписка — привязать", color = Moon, fontSize = 15.sp,
                         modifier = Modifier.clickable { linkOpen = !linkOpen }.padding(vertical = 6.dp))
                     if (linkOpen) {
-                        Text("Вставьте ссылку подписки из кабинета или бота (там она копируется одним нажатием). Пробный аккаунт этого телефона будет заменён вашей подпиской.",
+                        Text("Вставьте ссылку подписки (ключ) из кабинета или бота: там она копируется одним нажатием. Пробный аккаунт этого телефона будет заменён вашей подпиской.",
                             color = Fog, fontSize = 12.sp)
                         Spacer(Modifier.height(6.dp))
                         OutlinedTextField(
                             value = linkText, onValueChange = { linkText = it }, singleLine = true,
-                            placeholder = { Text("https://…/api/sub/…", color = Fog) },
+                            placeholder = { Text("https://…/s/…", color = Fog) },
                             colors = OutlinedTextFieldDefaults.colors(
                                 focusedBorderColor = Moon, unfocusedBorderColor = Fog,
                                 focusedTextColor = Color.White, unfocusedTextColor = Color.White, cursorColor = Moon,
