@@ -246,6 +246,9 @@ class MainActivity : ComponentActivity(), Host {
                 notifPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
             if (account == null || Prefs.config == null) refresh()
         }
+        LaunchedEffect(Unit) {   // обновление: не только при возврате на экран, но и раз в 15 минут (24.09)
+            while (true) { kotlinx.coroutines.delay(15 * 60_000L); Thread { Updater.check() }.start() }
+        }
 
         fun toggle() {
             if (VpnState.isRunning) { VPNService.stop(this); return }
@@ -295,21 +298,6 @@ class MainActivity : ComponentActivity(), Host {
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
             Box(Modifier.fillMaxWidth()) {
                 HeroVideo()
-                Column(Modifier.fillMaxWidth().statusBarsPadding().padding(top = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    // сервер — наверху по центру (Андрей 23.09), нажатие открывает список
-                    Row(
-                        Modifier.clip(RoundedCornerShape(999.dp)).background(p.bg.copy(alpha = 0.75f)).border(1.dp, p.line, RoundedCornerShape(999.dp))
-                            .clickable { go(Screen.Servers) }.padding(horizontal = 14.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Icon(Icons.Rounded.Language, null, tint = p.accent, modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text(serverLabel, color = p.text, fontFamily = BodyFont, fontSize = 13.sp, fontWeight = FontWeight.Medium)
-                        if (ping != null) { Spacer(Modifier.width(6.dp)); Text("· $ping мс", color = if (ping < 400) p.ok else p.warn, fontFamily = BodyFont, fontSize = 12.sp) }
-                        Spacer(Modifier.width(6.dp))
-                        Text("›", color = p.muted, fontSize = 16.sp)
-                    }
-                }
                 Text("NOCTILIS", color = p.text, fontFamily = HeadFont, fontWeight = FontWeight.Bold, fontSize = 26.sp, letterSpacing = 5.sp,
                     modifier = Modifier.align(Alignment.BottomStart).padding(start = 20.dp, bottom = 6.dp))
             }
@@ -358,7 +346,21 @@ class MainActivity : ComponentActivity(), Host {
                             fontFamily = HeadFont, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, letterSpacing = 1.sp)
                     }
                 }
-                Spacer(Modifier.height(12.dp))
+                Spacer(Modifier.height(14.dp))
+                    // сервер — под кнопкой включения (Андрей 24.09), нажатие открывает список
+                    Row(
+                        Modifier.clip(RoundedCornerShape(999.dp)).background(p.card).border(1.dp, p.line, RoundedCornerShape(999.dp))
+                            .clickable { go(Screen.Servers) }.padding(horizontal = 14.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(Icons.Rounded.Language, null, tint = p.accent, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text(serverLabel, color = p.text, fontFamily = BodyFont, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                        if (ping != null) { Spacer(Modifier.width(6.dp)); Text("· $ping мс", color = if (ping < 400) p.ok else p.warn, fontFamily = BodyFont, fontSize = 12.sp) }
+                        Spacer(Modifier.width(6.dp))
+                        Text("›", color = p.muted, fontSize = 16.sp)
+                    }
+                Spacer(Modifier.height(10.dp))
                 NText(
                     when (status) {
                         is VpnStatus.Connected -> "VPN включён · защищённое соединение"
@@ -369,14 +371,14 @@ class MainActivity : ComponentActivity(), Host {
                 )
                 Spacer(Modifier.height(24.dp))
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    MenuTile(Icons.Rounded.Settings, "Настройки", Modifier.weight(1f)) { go(Screen.Settings) }
+                    MenuTile(Icons.Rounded.AccountCircle, "Кабинет", Modifier.weight(1f)) { go(Screen.Cabinet) }
                     MenuTile(Icons.Rounded.AppSettingsAlt, "Исключения", Modifier.weight(1f)) { go(Screen.Exclusions) }
                     MenuTile(Icons.Rounded.CreditCard, "Оплата", Modifier.weight(1f), accent = !active || days <= 3) { go(Screen.Pay) }
                 }
                 Spacer(Modifier.height(10.dp))
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     MenuTile(Icons.Rounded.Redeem, "Бонусы", Modifier.weight(1f)) { go(Screen.Bonus) }
-                    MenuTile(Icons.Rounded.AccountCircle, "Кабинет", Modifier.weight(1f)) { go(Screen.Cabinet) }
+                    MenuTile(Icons.Rounded.Settings, "Настройки", Modifier.weight(1f)) { go(Screen.Settings) }
                     MenuTile(Icons.Rounded.SupportAgent, "Поддержка", Modifier.weight(1f)) { go(Screen.Support) }
                 }
                 Spacer(Modifier.height(20.dp))
