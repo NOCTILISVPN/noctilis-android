@@ -85,7 +85,18 @@ object Api {
 
     // ── поддержка внутри приложения: без Telegram и MAX ──
     fun supportList(token: String, after: Int = 0): JSONObject = call("GET", "/support?after=$after", token = token)
-    fun supportSend(token: String, text: String): JSONObject = call("POST", "/support", JSONObject().put("text", text), token)
+    fun supportSend(token: String, text: String, imageB64: String? = null): JSONObject =
+        call("POST", "/support", JSONObject().put("text", text).put("image", imageB64 ?: ""), token, timeoutMs = 90_000)
+
+    /** Картинка из переписки с поддержкой (jpeg), по токену. */
+    fun supportImage(token: String, id: Int): ByteArray {
+        val c = URL("$BASE/support/image?id=$id").openConnection() as HttpURLConnection
+        c.connectTimeout = 20_000; c.readTimeout = 40_000
+        c.setRequestProperty("User-Agent", ua)
+        c.setRequestProperty("Authorization", "Bearer $token")
+        if (c.responseCode !in 200..299) throw ApiException(c.responseCode, "HTTP ${c.responseCode}")
+        return c.inputStream.use { it.readBytes() }
+    }
 
     /** Журнал ядра и состояние — на сервер, чтобы разбирать «не подключается» без adb. */
     fun diag(token: String, log: String, server: String, excludedCount: Int, status: String, note: String = ""): JSONObject {
