@@ -302,17 +302,14 @@ class MainActivity : ComponentActivity(), Host {
         Column(Modifier.fillMaxSize().then(if (small) Modifier.verticalScroll(rememberScrollState()) else Modifier)) {
             Box(Modifier.fillMaxWidth()) {
                 HeroVideo()
-                Text("NOCTILIS", color = p.text, fontFamily = HeadFont, fontWeight = FontWeight.Bold, fontSize = 22.sp, letterSpacing = 4.sp,
-                    modifier = Modifier.align(Alignment.BottomStart).padding(start = 20.dp, bottom = 4.dp))
+                Text("NOCTILIS", color = p.text, fontFamily = HeadFont, fontWeight = FontWeight.Bold, fontSize = 26.sp, letterSpacing = 5.sp,
+                    modifier = Modifier.align(Alignment.BottomStart).padding(start = 20.dp, bottom = 6.dp))
             }
             Column(Modifier.padding(horizontal = 16.dp).navigationBarsPadding(), horizontalAlignment = Alignment.CenterHorizontally) {
-                NCard(padding = 14.dp) {
+                NCard(padding = 16.dp) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text(if (active) "$days ${Fmt.dw(days)}" else "Подписка закончилась", color = if (active) p.text else p.warn,
-                                fontFamily = HeadFont, fontWeight = FontWeight.SemiBold, fontSize = 18.sp)
-                            NText(if (active) "до " + Fmt.date(acc?.optLong("expiry_ms") ?: 0L) else "продлите в разделе «Оплата»", muted = true, size = 12)
-                        }
+                        NHeading("Тариф «Полный»", 15)
+                        Spacer(Modifier.weight(1f))
                         when {
                             acc == null && loading -> NBadge("Подключаемся…", p.muted)
                             acc == null -> NBadge("Нет аккаунта", p.danger)
@@ -321,6 +318,9 @@ class MainActivity : ComponentActivity(), Host {
                             else -> NBadge("Пробный период", p.warn)
                         }
                     }
+                    Spacer(Modifier.height(4.dp))
+                    NBig(if (active) "$days" else "0", if (active) Fmt.dw(days) else "дней", 36)
+                    NText(if (active) "до " + Fmt.date(acc?.optLong("expiry_ms") ?: 0L) else "Подписка закончилась — продлите в разделе «Оплата»", muted = active, color = if (active) null else p.warn, size = 13)
                     error?.let {
                         Spacer(Modifier.height(4.dp))
                         NText(it, color = p.warn, size = 12)
@@ -336,7 +336,7 @@ class MainActivity : ComponentActivity(), Host {
                 if (small) Spacer(Modifier.height(12.dp)) else Spacer(Modifier.weight(1f))
                 val busy = status is VpnStatus.Starting || status is VpnStatus.Stopping
                 Box(
-                    Modifier.size(150.dp).clip(CircleShape)
+                    Modifier.size(172.dp).clip(CircleShape)
                         .background(if (connected) accentGradient(p) else Brush.linearGradient(listOf(p.card2, p.card2)))
                         .border(2.dp, if (connected) p.accent else p.line, CircleShape)
                         .clickable(enabled = !busy) { onToggle() },
@@ -344,10 +344,10 @@ class MainActivity : ComponentActivity(), Host {
                 ) {
                     if (busy) CircularProgressIndicator(color = p.accent)
                     else Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(Icons.Rounded.Shield, null, tint = if (connected) p.accentText else p.accent, modifier = Modifier.size(32.dp))
+                        Icon(Icons.Rounded.Shield, null, tint = if (connected) p.accentText else p.accent, modifier = Modifier.size(36.dp))
                         Spacer(Modifier.height(6.dp))
                         Text(if (connected) "ВЫКЛЮЧИТЬ" else "ВКЛЮЧИТЬ", color = if (connected) p.accentText else p.text,
-                            fontFamily = HeadFont, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, letterSpacing = 1.sp)
+                            fontFamily = HeadFont, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, letterSpacing = 1.sp)
                     }
                 }
                 Spacer(Modifier.height(10.dp))
@@ -385,7 +385,7 @@ class MainActivity : ComponentActivity(), Host {
                     MenuTile(Icons.Rounded.Settings, "Настройки", Modifier.weight(1f)) { go(Screen.Settings) }
                     MenuTile(Icons.Rounded.SupportAgent, "Поддержка", Modifier.weight(1f)) { go(Screen.Support) }
                 }
-                Spacer(Modifier.height(12.dp))
+                if (small) Spacer(Modifier.height(12.dp)) else Spacer(Modifier.weight(0.7f))
             }
         }
         }
@@ -395,14 +395,14 @@ class MainActivity : ComponentActivity(), Host {
     private fun MenuTile(icon: ImageVector, text: String, modifier: Modifier, accent: Boolean = false, onClick: () -> Unit) {
         val p = LocalPalette.current
         Column(
-            modifier.height(64.dp).clip(RoundedCornerShape(18.dp))
+            modifier.height(72.dp).clip(RoundedCornerShape(18.dp))
                 .background(if (accent) accentGradient(p) else Brush.linearGradient(listOf(p.card, p.card)))
                 .border(1.dp, if (accent) Color.Transparent else p.line, RoundedCornerShape(20.dp))
                 .clickable { onClick() }.padding(horizontal = 4.dp, vertical = 10.dp),
             horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center,
         ) {
-            Icon(icon, null, tint = if (accent) p.accentText else p.accent, modifier = Modifier.size(20.dp))
-            Spacer(Modifier.height(4.dp))
+            Icon(icon, null, tint = if (accent) p.accentText else p.accent, modifier = Modifier.size(22.dp))
+            Spacer(Modifier.height(5.dp))
             Text(text, color = if (accent) p.accentText else p.text, fontFamily = BodyFont, fontSize = 12.sp, fontWeight = FontWeight.Medium,
                 maxLines = 1, softWrap = false, overflow = TextOverflow.Visible, letterSpacing = 0.sp)
         }
