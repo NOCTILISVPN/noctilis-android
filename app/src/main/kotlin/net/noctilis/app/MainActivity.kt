@@ -203,7 +203,9 @@ class MainActivity : ComponentActivity(), Host {
     private fun openPay(days: Int? = null) {
         val base = account?.optString("pay_url").orEmpty()
         if (base.isBlank()) { refresh(); return }
-        openUrl(if (days != null) "$base&days=$days" else base)
+        // выбор автопродления из кабинета приложения уезжает на страницу оплаты (?autopay=0/1)
+        val ap = account?.optJSONObject("autopay")?.optBoolean("on") ?: true
+        openUrl(base + (if (days != null) "&days=$days" else "") + "&autopay=" + (if (ap) "1" else "0"))
     }
 
     override fun copy(text: String, toast: String) {
@@ -616,6 +618,13 @@ class MainActivity : ComponentActivity(), Host {
                 } else {
                     NButton("Оплатить ${acc?.optInt("price_rub") ?: 150} ₽") { openPay() }
                 }
+                Spacer(Modifier.height(4.dp))
+                val ap = acc?.optJSONObject("autopay")
+                NText(
+                    if (ap?.optBoolean("on") == true) "Автопродление включено: карта сохранится при оплате, дальше списание само в последний день. Выключить — в «Кабинете»."
+                    else "Автопродление выключено — включить можно в «Кабинете» или на странице оплаты.",
+                    muted = true, size = 12,
+                )
                 Spacer(Modifier.height(4.dp))
                 NText("Есть промокод? Введите его в разделе «Бонусы» до оплаты. После оплаты вернитесь в приложение — срок обновится сам.", muted = true, size = 12)
                 Spacer(Modifier.height(8.dp))

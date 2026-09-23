@@ -69,6 +69,8 @@ object Api {
     fun deviceDelete(token: String, kind: String, id: String): JSONObject =
         call("POST", "/devices/delete", JSONObject().put("kind", kind).put("id", id), token)
     fun reissue(token: String): JSONObject = call("POST", "/reissue", JSONObject(), token)
+    /** Автопродление: карта сохраняется ЮKassa при оплате, списание в последний день подписки. */
+    fun autopay(token: String, on: Boolean): JSONObject = call("POST", "/autopay", JSONObject().put("autopay", on), token)
 
     // ── бонусы: рефералка, промокоды, акции (одна база с ботом NOCTILIS) ──
     fun bonus(token: String): JSONObject = call("GET", "/bonus", token = token)

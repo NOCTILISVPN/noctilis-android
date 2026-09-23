@@ -17,6 +17,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Link
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -96,6 +98,39 @@ fun CabinetScreen(host: Host, onBack: () -> Unit, onSubscriptionChanged: () -> U
             val lim = acc?.optInt("device_limit") ?: 0
             NTile("Устройства", "${devices?.optInt("count") ?: "…"}", "из ${if (lim > 0) lim else "—"}", Modifier.weight(1f))
             NTile("Трафик", Fmt.gb(acc?.optLong("traffic_bytes") ?: 0L), "без лимита", Modifier.weight(1f))
+        }
+
+        Spacer(Modifier.height(18.dp))
+        NLabel("Автопродление")
+        Spacer(Modifier.height(6.dp))
+        NCard {
+            val ap = acc?.optJSONObject("autopay")
+            var on by remember(ap?.toString()) { mutableStateOf(ap?.optBoolean("on") ?: false) }
+            val last4 = ap?.optString("card_last4").orEmpty()
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    NText(if (on) "Включено" else "Выключено", size = 15)
+                    NText(
+                        when {
+                            on && last4.isNotBlank() -> "Карта •••• $last4 — списание 5 ₽ × 30 дней в последний день подписки"
+                            on -> "Карта сохранится при следующей оплате картой — потом списание в последний день подписки"
+                            else -> "Подписку придётся продлевать вручную"
+                        }, muted = true, size = 12,
+                    )
+                }
+                Switch(
+                    checked = on,
+                    onCheckedChange = { v ->
+                        on = v
+                        Thread {
+                            val r = try { Api.autopay(host.token!!, v); if (v) "Автопродление включено" else "Автопродление выключено, карта отвязана" }
+                            catch (e: Exception) { "Не удалось: ${e.message}" }
+                            host.runUi { msg = r; host.refresh(true) }
+                        }.start()
+                    },
+                    colors = SwitchDefaults.colors(checkedThumbColor = p.accentText, checkedTrackColor = p.accent),
+                )
+            }
         }
 
         Spacer(Modifier.height(18.dp))
