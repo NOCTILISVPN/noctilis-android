@@ -55,6 +55,11 @@ object Prefs {
         get() = sp.getString("server", "auto") ?: "auto"
         set(v) = sp.edit().putString("server", v).apply()
 
+    /** Оформление: "dark" | "light" (как в кабинете NOCTILIS). */
+    var theme: String
+        get() = sp.getString("theme", "dark") ?: "dark"
+        set(v) = sp.edit().putString("theme", v).apply()
+
     /** Поднимать VPN при загрузке телефона. */
     var autoStart: Boolean
         get() = sp.getBoolean("autostart", true)

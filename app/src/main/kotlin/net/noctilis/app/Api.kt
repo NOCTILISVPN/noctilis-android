@@ -54,6 +54,10 @@ object Api {
     /** Привязка действующей подписки по ссылке из кабинета (решение Андрея 22.09). */
     fun link(token: String, sub: String): JSONObject = call("POST", "/link", JSONObject().put("sub", sub), token)
 
+    fun devices(token: String): JSONObject = call("GET", "/devices", token = token)
+    fun devicesReset(token: String): JSONObject = call("POST", "/devices/reset", JSONObject(), token)
+    fun reissue(token: String): JSONObject = call("POST", "/reissue", JSONObject(), token)
+
     fun ref(token: String): JSONObject = call("GET", "/ref", token = token)
     fun refApply(token: String, code: String): JSONObject = call("POST", "/ref/apply", JSONObject().put("code", code), token)
     fun refWithdraw(token: String, requisites: String): JSONObject = call("POST", "/ref/withdraw", JSONObject().put("requisites", requisites), token)
