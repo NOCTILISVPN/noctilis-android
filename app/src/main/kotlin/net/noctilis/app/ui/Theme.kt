@@ -68,7 +68,7 @@ fun accentGradient(p: NoctilisPalette) = Brush.linearGradient(
 )
 
 @Composable
-fun NCard(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
+fun NCard(modifier: Modifier = Modifier, padding: androidx.compose.ui.unit.Dp = 20.dp, content: @Composable ColumnScope.() -> Unit) {
     val p = LocalPalette.current
     Column(
         modifier
@@ -76,7 +76,7 @@ fun NCard(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> 
             .clip(RoundedCornerShape(24.dp))
             .background(p.card)
             .border(1.dp, p.line, RoundedCornerShape(24.dp))
-            .padding(20.dp),
+            .padding(padding),
         content = content,
     )
 }

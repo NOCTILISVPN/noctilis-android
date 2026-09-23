@@ -297,17 +297,22 @@ class MainActivity : ComponentActivity(), Host {
         val server = Prefs.server
         val serverLabel = if (server == "auto") "Автовыбор" else server
         val ping = if (server == "auto") pings.values.filter { it.delayMs > 0 }.minOfOrNull { it.delayMs } else pings[server]?.delayMs?.takeIf { it > 0 }
-        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+        androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize()) {
+        val small = maxHeight < 620.dp   // очень маленький экран — прокрутка, иначе всё влезает без неё (Андрей 24.09)
+        Column(Modifier.fillMaxSize().then(if (small) Modifier.verticalScroll(rememberScrollState()) else Modifier)) {
             Box(Modifier.fillMaxWidth()) {
                 HeroVideo()
-                Text("NOCTILIS", color = p.text, fontFamily = HeadFont, fontWeight = FontWeight.Bold, fontSize = 26.sp, letterSpacing = 5.sp,
-                    modifier = Modifier.align(Alignment.BottomStart).padding(start = 20.dp, bottom = 6.dp))
+                Text("NOCTILIS", color = p.text, fontFamily = HeadFont, fontWeight = FontWeight.Bold, fontSize = 22.sp, letterSpacing = 4.sp,
+                    modifier = Modifier.align(Alignment.BottomStart).padding(start = 20.dp, bottom = 4.dp))
             }
             Column(Modifier.padding(horizontal = 16.dp).navigationBarsPadding(), horizontalAlignment = Alignment.CenterHorizontally) {
-                NCard {
+                NCard(padding = 14.dp) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        NHeading("Тариф «Полный»", 15)
-                        Spacer(Modifier.weight(1f))
+                        Column(Modifier.weight(1f)) {
+                            Text(if (active) "$days ${Fmt.dw(days)}" else "Подписка закончилась", color = if (active) p.text else p.warn,
+                                fontFamily = HeadFont, fontWeight = FontWeight.SemiBold, fontSize = 18.sp)
+                            NText(if (active) "до " + Fmt.date(acc?.optLong("expiry_ms") ?: 0L) else "продлите в разделе «Оплата»", muted = true, size = 12)
+                        }
                         when {
                             acc == null && loading -> NBadge("Подключаемся…", p.muted)
                             acc == null -> NBadge("Нет аккаунта", p.danger)
@@ -316,25 +321,22 @@ class MainActivity : ComponentActivity(), Host {
                             else -> NBadge("Пробный период", p.warn)
                         }
                     }
-                    Spacer(Modifier.height(6.dp))
-                    NBig(if (active) "$days" else "0", if (active) Fmt.dw(days) else "дней", 40)
-                    NText(if (active) "до " + Fmt.date(acc?.optLong("expiry_ms") ?: 0L) else "Подписка закончилась — продлите в разделе «Оплата»", muted = active, color = if (active) null else p.warn, size = 13)
                     error?.let {
-                        Spacer(Modifier.height(6.dp))
-                        NText(it, color = p.warn, size = 13)
+                        Spacer(Modifier.height(4.dp))
+                        NText(it, color = p.warn, size = 12)
                         Text("нажмите, чтобы повторить", color = p.muted, fontFamily = BodyFont, fontSize = 12.sp, modifier = Modifier.clickable { refresh() })
                     }
                 }
                 if (update != null) {
-                    Spacer(Modifier.height(10.dp))
+                    Spacer(Modifier.height(6.dp))
                     NCard(Modifier.clickable(enabled = updState.isEmpty()) { Updater.download(this@MainActivity, update!!) }) {
                         NText(if (updState.isEmpty()) "Доступна версия ${update!!.version} · нажмите, чтобы обновить" else updState, color = p.accent, size = 14)
                     }
                 }
-                Spacer(Modifier.height(24.dp))
+                if (small) Spacer(Modifier.height(12.dp)) else Spacer(Modifier.weight(1f))
                 val busy = status is VpnStatus.Starting || status is VpnStatus.Stopping
                 Box(
-                    Modifier.size(196.dp).clip(CircleShape)
+                    Modifier.size(150.dp).clip(CircleShape)
                         .background(if (connected) accentGradient(p) else Brush.linearGradient(listOf(p.card2, p.card2)))
                         .border(2.dp, if (connected) p.accent else p.line, CircleShape)
                         .clickable(enabled = !busy) { onToggle() },
@@ -342,13 +344,13 @@ class MainActivity : ComponentActivity(), Host {
                 ) {
                     if (busy) CircularProgressIndicator(color = p.accent)
                     else Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(Icons.Rounded.Shield, null, tint = if (connected) p.accentText else p.accent, modifier = Modifier.size(40.dp))
-                        Spacer(Modifier.height(8.dp))
+                        Icon(Icons.Rounded.Shield, null, tint = if (connected) p.accentText else p.accent, modifier = Modifier.size(32.dp))
+                        Spacer(Modifier.height(6.dp))
                         Text(if (connected) "ВЫКЛЮЧИТЬ" else "ВКЛЮЧИТЬ", color = if (connected) p.accentText else p.text,
-                            fontFamily = HeadFont, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, letterSpacing = 1.sp)
+                            fontFamily = HeadFont, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, letterSpacing = 1.sp)
                     }
                 }
-                Spacer(Modifier.height(14.dp))
+                Spacer(Modifier.height(10.dp))
                     // сервер — под кнопкой включения (Андрей 24.09), нажатие открывает список
                     Row(
                         Modifier.clip(RoundedCornerShape(999.dp)).background(p.card).border(1.dp, p.line, RoundedCornerShape(999.dp))
@@ -362,7 +364,7 @@ class MainActivity : ComponentActivity(), Host {
                         Spacer(Modifier.width(6.dp))
                         Text("›", color = p.muted, fontSize = 16.sp)
                     }
-                Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(6.dp))
                 NText(
                     when (status) {
                         is VpnStatus.Connected -> "VPN включён · защищённое соединение"
@@ -371,20 +373,21 @@ class MainActivity : ComponentActivity(), Host {
                     },
                     muted = status !is VpnStatus.Error, color = if (status is VpnStatus.Error) p.warn else null, size = 13,
                 )
-                Spacer(Modifier.height(24.dp))
+                if (small) Spacer(Modifier.height(12.dp)) else Spacer(Modifier.weight(1f))
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     MenuTile(Icons.Rounded.AccountCircle, "Кабинет", Modifier.weight(1f)) { go(Screen.Cabinet) }
                     MenuTile(Icons.Rounded.AppSettingsAlt, "Исключения", Modifier.weight(1f)) { go(Screen.Exclusions) }
                     MenuTile(Icons.Rounded.CreditCard, "Оплата", Modifier.weight(1f), accent = !active || days <= 3) { go(Screen.Pay) }
                 }
-                Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(8.dp))
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     MenuTile(Icons.Rounded.Redeem, "Бонусы", Modifier.weight(1f)) { go(Screen.Bonus) }
                     MenuTile(Icons.Rounded.Settings, "Настройки", Modifier.weight(1f)) { go(Screen.Settings) }
                     MenuTile(Icons.Rounded.SupportAgent, "Поддержка", Modifier.weight(1f)) { go(Screen.Support) }
                 }
-                Spacer(Modifier.height(20.dp))
+                Spacer(Modifier.height(12.dp))
             }
+        }
         }
     }
 
@@ -392,14 +395,14 @@ class MainActivity : ComponentActivity(), Host {
     private fun MenuTile(icon: ImageVector, text: String, modifier: Modifier, accent: Boolean = false, onClick: () -> Unit) {
         val p = LocalPalette.current
         Column(
-            modifier.height(84.dp).clip(RoundedCornerShape(20.dp))
+            modifier.height(64.dp).clip(RoundedCornerShape(18.dp))
                 .background(if (accent) accentGradient(p) else Brush.linearGradient(listOf(p.card, p.card)))
                 .border(1.dp, if (accent) Color.Transparent else p.line, RoundedCornerShape(20.dp))
                 .clickable { onClick() }.padding(horizontal = 4.dp, vertical = 10.dp),
             horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center,
         ) {
-            Icon(icon, null, tint = if (accent) p.accentText else p.accent, modifier = Modifier.size(24.dp))
-            Spacer(Modifier.height(6.dp))
+            Icon(icon, null, tint = if (accent) p.accentText else p.accent, modifier = Modifier.size(20.dp))
+            Spacer(Modifier.height(4.dp))
             Text(text, color = if (accent) p.accentText else p.text, fontFamily = BodyFont, fontSize = 12.sp, fontWeight = FontWeight.Medium,
                 maxLines = 1, softWrap = false, overflow = TextOverflow.Visible, letterSpacing = 0.sp)
         }
