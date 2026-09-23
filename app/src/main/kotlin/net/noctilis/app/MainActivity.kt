@@ -2,6 +2,8 @@ package net.noctilis.app
 
 import android.Manifest
 import android.app.Activity
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
@@ -422,6 +424,8 @@ class MainActivity : ComponentActivity() {
                         ) { Text("Привязать", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Medium) }
                         if (linkState.isNotEmpty()) { Spacer(Modifier.height(6.dp)); Text(linkState, color = if (linkState.startsWith("Готово")) Color(0xFF4CD97B) else Warn, fontSize = 13.sp) }
                     }
+                    Spacer(Modifier.height(24.dp))
+                    ReferralSection()
                     Spacer(Modifier.height(16.dp))
                     Text("Обновить список серверов", color = Moon, fontSize = 15.sp,
                         modifier = Modifier.clickable { refresh() }.padding(vertical = 6.dp))
@@ -447,6 +451,101 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    // ── Реферальная программа: та же база и правила, что у бота NOCTILIS ──
+
+    @Composable
+    private fun ReferralSection() {
+        var info by remember { mutableStateOf<JSONObject?>(null) }
+        var err by remember { mutableStateOf("") }
+        var code by remember { mutableStateOf("") }
+        var reqs by remember { mutableStateOf("") }
+        var msg by remember { mutableStateOf("") }
+        fun load() {
+            Thread {
+                try { val t = Prefs.token ?: error("нет аккаунта"); val r = Api.ref(t); runOnUiThread { info = r; err = "" } }
+                catch (e: Exception) { runOnUiThread { err = "Реферальная программа сейчас недоступна" } }
+            }.start()
+        }
+        LaunchedEffect(Unit) { load() }
+        Text("Реферальная программа", color = Fog, fontSize = 13.sp)
+        Spacer(Modifier.height(4.dp))
+        val i = info
+        if (i == null) {
+            Text(if (err.isEmpty()) "Загружаем…" else err, color = Fog, fontSize = 13.sp)
+            return
+        }
+        val l1p = i.optInt("l1_pct"); val l2p = i.optInt("l2_pct")
+        val rub = { kop: Int -> "${kop / 100} ₽" }
+        Text("Вы получаете $l1p% с каждой оплаты тех, кого пригласили, и $l2p% с оплат тех, кого пригласили они.",
+            color = Color.White, fontSize = 14.sp)
+        Spacer(Modifier.height(8.dp))
+        Text("Приглашено: ${i.optInt("l1")} · второй уровень: ${i.optInt("l2")} · оплатили: ${i.optInt("paid")}", color = Fog, fontSize = 13.sp)
+        Text("Заработано: ${rub(i.optInt("earned_total"))} · к выводу: ${rub(i.optInt("withdrawable"))} (от ${i.optInt("withdraw_min")} ₽)", color = Fog, fontSize = 13.sp)
+        Spacer(Modifier.height(8.dp))
+        val link = i.optString("link")
+        Text("Ваш код: ${i.optString("code")}", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+        Text(link, color = Moon, fontSize = 13.sp)
+        Spacer(Modifier.height(6.dp))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            MenuButton("Скопировать", Modifier.weight(1f), {
+                val cm = getSystemService(ClipboardManager::class.java)
+                cm.setPrimaryClip(ClipData.newPlainText("NOCTILIS", link)); msg = "Ссылка скопирована"
+            })
+            MenuButton("Поделиться", Modifier.weight(1f), {
+                val text = "NOCTILIS — VPN, который работает: банки и Госуслуги мимо туннеля, остальное через VPN. Ставь по ссылке и введи мой код ${i.optString("code")} в настройках: $link"
+                startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, text), "Поделиться"))
+            })
+        }
+        if (i.optBoolean("can_apply")) {
+            Spacer(Modifier.height(12.dp))
+            Text("Есть код приглашения? Введите его, и пригласивший получит долю с ваших оплат. Вы ничего не теряете.", color = Fog, fontSize = 12.sp)
+            Spacer(Modifier.height(6.dp))
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedTextField(
+                    value = code, onValueChange = { code = it }, singleLine = true,
+                    placeholder = { Text("код", color = Fog) },
+                    colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Moon, unfocusedBorderColor = Fog,
+                        focusedTextColor = Color.White, unfocusedTextColor = Color.White, cursorColor = Moon),
+                    modifier = Modifier.weight(1f),
+                )
+                MenuButton("Применить", Modifier.width(120.dp), {
+                    val c = code.trim(); if (c.isEmpty()) return@MenuButton
+                    Thread {
+                        val r = try { Api.refApply(Prefs.token!!, c); "Код принят"; }
+                        catch (e: ApiException) { when (e.message) { "self" -> "Это ваш собственный код"; "bad_code" -> "Код не похож на наш"; else -> "Код не принят: такого приглашающего нет или код уже вводили" } }
+                        catch (e: Exception) { "Нет связи с сервером" }
+                        runOnUiThread { msg = r; if (r == "Код принят") { code = ""; load() } }
+                    }.start()
+                })
+            }
+        }
+        if (i.optInt("withdrawable") >= i.optInt("withdraw_min") * 100 && !i.optBoolean("pending_withdraw")) {
+            Spacer(Modifier.height(12.dp))
+            Text("Вывод: напишите телефон и банк (СБП) или номер карты одной строкой. Переводим в течение 3 рабочих дней.", color = Fog, fontSize = 12.sp)
+            Spacer(Modifier.height(6.dp))
+            OutlinedTextField(
+                value = reqs, onValueChange = { reqs = it }, singleLine = true,
+                placeholder = { Text("+7… Сбер / номер карты", color = Fog) },
+                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Moon, unfocusedBorderColor = Fog,
+                    focusedTextColor = Color.White, unfocusedTextColor = Color.White, cursorColor = Moon),
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(Modifier.height(6.dp))
+            MenuButton("Вывести ${rub(i.optInt("withdrawable"))}", Modifier.fillMaxWidth(), {
+                if (reqs.trim().length < 5) { msg = "Укажите реквизиты"; return@MenuButton }
+                Thread {
+                    val r = try { val x = Api.refWithdraw(Prefs.token!!, reqs.trim()); "Заявка №${x.optInt("id")} принята, сумма зарезервирована" }
+                    catch (e: ApiException) { when (e.message) { "pending" -> "Предыдущая заявка ещё в работе"; "min" -> "Меньше минимальной суммы"; else -> "Не удалось: ${e.message}" } }
+                    catch (e: Exception) { "Нет связи с сервером" }
+                    runOnUiThread { msg = r; reqs = ""; load() }
+                }.start()
+            }, accent = true)
+        } else if (i.optBoolean("pending_withdraw")) {
+            Spacer(Modifier.height(8.dp)); Text("Заявка на вывод в работе, оператор выплатит и отметит.", color = Fog, fontSize = 12.sp)
+        }
+        if (msg.isNotEmpty()) { Spacer(Modifier.height(6.dp)); Text(msg, color = if (msg.startsWith("Код принят") || msg.startsWith("Заявка") || msg.startsWith("Ссылка")) Color(0xFF4CD97B) else Warn, fontSize = 13.sp) }
     }
 
     /** После смены сервера или исключений — пересоздать туннель, если он включён. */
