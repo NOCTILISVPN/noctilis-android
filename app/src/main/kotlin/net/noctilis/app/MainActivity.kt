@@ -440,9 +440,13 @@ class MainActivity : ComponentActivity(), Host {
                     ) {
                         RadioButton(selected = server == tag, onClick = null, colors = RadioButtonDefaults.colors(selectedColor = p.accent, unselectedColor = p.muted))
                         Spacer(Modifier.width(8.dp))
-                        NText(if (tag == "auto") "Автовыбор (самый быстрый)" else tag, size = 15)
-                        Spacer(Modifier.weight(1f))
-                        val ping = pings[tag]
+                        // у «Автовыбора» ядро отдаёт пинг прошлого выбора группы — показываем лучший из списка и какой это сервер
+                        val best = if (tag == "auto") servers.mapNotNull { pings[it] }.filter { it.delayMs > 0 }.minByOrNull { it.delayMs } else null
+                        if (tag == "auto") Column(Modifier.weight(1f)) {
+                            NText("Автовыбор", size = 15)
+                            NText(if (best != null) "сейчас самый быстрый — ${best.tag}" else "берёт самый быстрый сервер", muted = true, size = 12)
+                        } else { NText(tag, size = 15); Spacer(Modifier.weight(1f)) }
+                        val ping = if (tag == "auto") best else pings[tag]
                         if (ping != null) NText(if (ping.delayMs > 0) "${ping.delayMs} мс" else "нет ответа", size = 13,
                             color = when { ping.delayMs <= 0 -> p.danger; ping.delayMs < 400 -> p.ok; else -> p.warn })
                     }
