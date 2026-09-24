@@ -144,6 +144,14 @@ class MainActivity : ComponentActivity(), Host {
     private val bonus = BonusState()
     private var refreshJob: Job? = null
     override val scope: CoroutineScope get() = lifecycleScope
+    /** Уведомление «продлите подписку» при уже открытом приложении (singleTask) приходит в onNewIntent — открываем «Оплату». */
+    private var openPayTick by mutableStateOf(0)
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (intent.getStringExtra("screen") == "pay") openPayTick++
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -260,6 +268,7 @@ class MainActivity : ComponentActivity(), Host {
         val p = LocalPalette.current
         // rememberSaveable: поворот экрана не выбрасывает на главный
         var screen by rememberSaveable { mutableStateOf(if (intent?.getStringExtra("screen") == "pay") Screen.Pay else Screen.Home) }
+        LaunchedEffect(openPayTick) { if (openPayTick > 0) screen = Screen.Pay }
         val status by VpnState.status.collectAsState()
         val vpnPermission = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
             if (it.resultCode == Activity.RESULT_OK) VPNService.start(this)
