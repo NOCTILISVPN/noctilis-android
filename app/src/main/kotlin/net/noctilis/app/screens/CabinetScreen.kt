@@ -26,10 +26,14 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import net.noctilis.app.Api
 import net.noctilis.app.ApiException
 import net.noctilis.app.Fmt
@@ -66,10 +70,12 @@ fun CabinetScreen(host: Host, onBack: () -> Unit, onSubscriptionChanged: () -> U
     var linkText by remember { mutableStateOf("") }
     var linkState by remember { mutableStateOf("") }
 
+    val ui = rememberCoroutineScope()
+    /** Сетевой вызов в фоне, результат — в состояние экрана; при уходе с экрана корутина отменяется. */
+    fun io(block: () -> String, then: (String) -> Unit) { ui.launch { then(withContext(Dispatchers.IO) { block() }) } }
     fun loadDevices() {
-        Thread {
-            try { val t = host.token ?: return@Thread; val d = Api.devices(t); host.runUi { devices = d } } catch (_: Exception) {}
-        }.start()
+        val t = host.token ?: return
+        ui.launch { withContext(Dispatchers.IO) { try { Api.devices(t) } catch (_: Exception) { null } }?.let { devices = it } }
     }
     LaunchedEffect(Unit) { loadDevices() }
 
@@ -122,11 +128,11 @@ fun CabinetScreen(host: Host, onBack: () -> Unit, onSubscriptionChanged: () -> U
                     checked = on,
                     onCheckedChange = { v ->
                         on = v
-                        Thread {
-                            val r = try { Api.autopay(host.token!!, v); if (v) "Автопродление включено" else "Автопродление выключено, карта отвязана" }
+                        val t = host.token
+                        io({
+                            try { Api.autopay(t ?: error("нет аккаунта"), v); if (v) "Автопродление включено" else "Автопродление выключено, карта отвязана" }
                             catch (e: Exception) { "Не удалось: ${e.message}" }
-                            host.runUi { msg = r; host.refresh(true) }
-                        }.start()
+                        }) { r -> msg = r; host.refresh(true) }
                     },
                     colors = SwitchDefaults.colors(checkedThumbColor = p.accentText, checkedTrackColor = p.accent),
                 )
@@ -148,7 +154,7 @@ fun CabinetScreen(host: Host, onBack: () -> Unit, onSubscriptionChanged: () -> U
             if (devices == null) NText("Загружаем…", muted = true, size = 13)
             else if (arr == null || arr.length() == 0) NText("Пока ни одного устройства.", muted = true, size = 13)
             else (0 until arr.length()).forEach { i ->
-                val d = arr.getJSONObject(i)
+                val d = arr.optJSONObject(i) ?: return@forEach
                 val self = d.optBoolean("this")
                 Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
@@ -189,9 +195,10 @@ fun CabinetScreen(host: Host, onBack: () -> Unit, onSubscriptionChanged: () -> U
                 Spacer(Modifier.height(8.dp))
                 NButton("Привязать", enabled = linkText.isNotBlank() && linkState != "Проверяем…") {
                     linkState = "Проверяем…"
-                    Thread {
-                        val r = try {
-                            val me = Api.link(host.token ?: error("нет аккаунта"), linkText.trim())
+                    val t = host.token; val link = linkText.trim()
+                    io({
+                        try {
+                            val me = Api.link(t ?: error("нет аккаунта"), link)
                             host.runUi { onSubscriptionChanged() }
                             if (me.optBoolean("already")) "Эта подписка уже привязана" else "Готово: подписка привязана"
                         } catch (e: ApiException) {
@@ -202,8 +209,7 @@ fun CabinetScreen(host: Host, onBack: () -> Unit, onSubscriptionChanged: () -> U
                                 else -> "Сервер ответил: ${e.message}"
                             }
                         } catch (_: Exception) { "Нет связи с сервером" }
-                        host.runUi { linkState = r; if (r.startsWith("Готово")) { linkText = ""; host.refresh(true); loadDevices() } }
-                    }.start()
+                    }) { r -> linkState = r; if (r.startsWith("Готово")) { linkText = ""; host.refresh(true); loadDevices() } }
                 }
                 if (linkState.isNotEmpty()) { Spacer(Modifier.height(6.dp)); NText(linkState, color = if (linkState.startsWith("Готово")) p.ok else p.warn, size = 13) }
             }
@@ -221,10 +227,8 @@ fun CabinetScreen(host: Host, onBack: () -> Unit, onSubscriptionChanged: () -> U
             confirmButton = {
                 TextButton(onClick = {
                     confirm = null
-                    Thread {
-                        val r = try { Api.deviceDelete(host.token!!, kind, id); "Устройство отвязано" } catch (e: Exception) { "Не удалось: ${e.message}" }
-                        host.runUi { msg = r; loadDevices() }
-                    }.start()
+                    val t = host.token
+                    io({ try { Api.deviceDelete(t ?: error("нет аккаунта"), kind, id); "Устройство отвязано" } catch (e: Exception) { "Не удалось: ${e.message}" } }) { r -> msg = r; loadDevices() }
                 }) { Text("Отвязать", color = p.danger, fontFamily = BodyFont) }
             },
             dismissButton = { TextButton(onClick = { confirm = null }) { Text("Отмена", color = p.muted, fontFamily = BodyFont) } },
@@ -239,10 +243,8 @@ fun CabinetScreen(host: Host, onBack: () -> Unit, onSubscriptionChanged: () -> U
             confirmButton = {
                 TextButton(onClick = {
                     reissueAsk = false
-                    Thread {
-                        val r = try { Api.reissue(host.token!!); "Ссылка перевыпущена — старая больше не работает" } catch (e: Exception) { "Не удалось: ${e.message}" }
-                        host.runUi { msg = r; if (r.startsWith("Ссылка")) onSubscriptionChanged() }
-                    }.start()
+                    val t = host.token
+                    io({ try { Api.reissue(t ?: error("нет аккаунта")); "Ссылка перевыпущена — старая больше не работает" } catch (e: Exception) { "Не удалось: ${e.message}" } }) { r -> msg = r; if (r.startsWith("Ссылка")) onSubscriptionChanged() }
                 }) { Text("Да, выпустить новую", color = p.danger, fontFamily = BodyFont) }
             },
             dismissButton = { TextButton(onClick = { reissueAsk = false }) { Text("Отмена", color = p.muted, fontFamily = BodyFont) } },

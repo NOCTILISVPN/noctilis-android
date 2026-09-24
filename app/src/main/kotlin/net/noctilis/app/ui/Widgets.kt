@@ -1,5 +1,6 @@
 package net.noctilis.app.ui
 
+import android.media.AudioManager
 import android.net.Uri
 import android.widget.VideoView
 import androidx.compose.foundation.Image
@@ -46,9 +47,14 @@ fun HeroVideo(modifier: Modifier = Modifier) {
     var failed by remember { mutableStateOf(false) }
     Box(modifier.fillMaxWidth().aspectRatio(960f / 536f).background(Color(0xFF05080C))) {
         if (!failed) {
+            // Плеер: без аудиофокуса (иначе открытие приложения ставит на паузу музыку пользователя),
+            // при уходе с экрана освобождается сразу (onRelease), при сворачивании VideoView сам
+            // отпускает MediaPlayer вместе с поверхностью и заново готовит видео при возврате —
+            // onPrepared запускает его снова.
             AndroidView(
                 factory = { ctx ->
                     VideoView(ctx).apply {
+                        setAudioFocusRequest(AudioManager.AUDIOFOCUS_NONE)
                         setVideoURI(Uri.parse("android.resource://${ctx.packageName}/${R.raw.hero}"))
                         setOnPreparedListener { mp -> mp.isLooping = true; mp.setVolume(0f, 0f); start() }
                         setOnErrorListener { _, _, _ -> failed = true; true }
@@ -56,6 +62,7 @@ fun HeroVideo(modifier: Modifier = Modifier) {
                     }
                 },
                 update = { v -> if (!v.isPlaying) runCatching { v.start() } },
+                onRelease = { v -> runCatching { v.stopPlayback() } },
                 modifier = Modifier.fillMaxSize(),
             )
         } else {

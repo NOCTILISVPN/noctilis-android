@@ -6,7 +6,7 @@ import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.os.Build
 import android.os.Handler
-import android.os.Looper
+import android.os.HandlerThread
 import io.nekohasekai.libbox.InterfaceUpdateListener
 import net.noctilis.app.App
 import java.net.NetworkInterface
@@ -27,7 +27,9 @@ object DefaultNetworkMonitor {
     var defaultNetwork: Network? = null
         private set
     private var registered = false
-    private val mainHandler = Handler(Looper.getMainLooper())
+    // Колбэки сети — в своём потоке: notifyListener ждёт появления интерфейса (до 1 с сна),
+    // на главном потоке это подвешивало интерфейс приложения.
+    private val handler: Handler by lazy { Handler(HandlerThread("noctilis-net").apply { start() }.looper) }
 
     private val request = NetworkRequest.Builder()
         .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
@@ -68,9 +70,9 @@ object DefaultNetworkMonitor {
         try {
             val cm = App.connectivity
             when {
-                Build.VERSION.SDK_INT >= 31 -> cm.registerBestMatchingNetworkCallback(request, callback, mainHandler)
-                Build.VERSION.SDK_INT >= 28 -> cm.requestNetwork(request, callback, mainHandler)   // нужен CHANGE_NETWORK_STATE
-                else -> cm.registerDefaultNetworkCallback(callback, mainHandler)
+                Build.VERSION.SDK_INT >= 31 -> cm.registerBestMatchingNetworkCallback(request, callback, handler)
+                Build.VERSION.SDK_INT >= 28 -> cm.requestNetwork(request, callback, handler)   // нужен CHANGE_NETWORK_STATE
+                else -> cm.registerDefaultNetworkCallback(callback, handler)
             }
             registered = true
         } catch (e: Exception) {
@@ -97,14 +99,14 @@ object DefaultNetworkMonitor {
             l.updateDefaultInterface("", -1, false, false)
             return
         }
-        val name = App.connectivity.getLinkProperties(network)?.interfaceName ?: return
+        val name = try { App.connectivity.getLinkProperties(network)?.interfaceName } catch (_: Exception) { null } ?: return
         for (attempt in 0 until 10) {
             val index = try { NetworkInterface.getByName(name)?.index } catch (_: Exception) { null }
             if (index != null) {
                 l.updateDefaultInterface(name, index, false, false)
                 return
             }
-            Thread.sleep(100)
+            try { Thread.sleep(100) } catch (_: InterruptedException) { return }
         }
         LogBuffer.add("app", "интерфейс $name не найден по имени")
     }

@@ -58,10 +58,10 @@ object CoreClient : CommandClientHandler {
     /** Замер задержки до всех серверов группы «auto» (ядро само пингует каждый). */
     fun testAll() {
         val c = client ?: return
-        _testing.value = true
+        if (!_testing.compareAndSet(expect = false, update = true)) return   // замер уже идёт
         Thread {
             try { c.urlTest("auto") } catch (e: Exception) { LogBuffer.add("app", "пинг: $e") }
-            Thread.sleep(6000)
+            try { Thread.sleep(6000) } catch (_: InterruptedException) {}
             _testing.value = false
         }.start()
     }

@@ -1,5 +1,6 @@
 package net.noctilis.app
 
+import kotlinx.coroutines.CoroutineScope
 import org.json.JSONObject
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -15,6 +16,9 @@ interface Host {
     fun refresh(silent: Boolean = false)
     fun toast(text: String)
     fun runUi(block: () -> Unit)
+    /** Область корутин активности: живёт, пока жива активность, — для запросов, которые должны
+     *  дожить до ответа при переходе между экранами (загрузка бонусов и т.п.). */
+    val scope: CoroutineScope
 }
 
 /** Форматирование как в кабинете NOCTILIS. */

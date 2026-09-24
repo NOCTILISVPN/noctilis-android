@@ -27,6 +27,9 @@ import net.noctilis.app.MainActivity
 import net.noctilis.app.Prefs
 import net.noctilis.app.R
 import java.net.InetAddress
+import java.util.concurrent.Executors
+import java.util.concurrent.RejectedExecutionException
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.concurrent.thread
 
 /**
@@ -50,25 +53,41 @@ class VPNService : VpnService(), PlatformInterfaceWrapper, CommandServerHandler 
         }
     }
 
-    private var commandServer: CommandServer? = null
-    private var tunFd: ParcelFileDescriptor? = null
-    @Volatile private var busy = false
+    @Volatile private var commandServer: CommandServer? = null
+    @Volatile private var tunFd: ParcelFileDescriptor? = null
+    @Volatile private var destroyed = false
+    private val pendingStarts = AtomicInteger(0)   // START-команды в очереди: стоп перед ними не снимает уведомление
+
+    /**
+     * Старт и стоп идут по очереди в одном потоке: раньше команда, пришедшая во время
+     * другой (флаг busy), молча терялась — после смены исключений «стоп → старт» через 300 мс
+     * оставлял VPN выключенным, а отзыв VPN системой во время старта не останавливал ядро.
+     */
+    private val ops = Executors.newSingleThreadExecutor { r -> Thread(r, "noctilis-vpn").apply { isDaemon = true } }
+
+    private fun enqueue(block: () -> Unit) {
+        try { ops.execute(block) } catch (_: RejectedExecutionException) {}   // сервис уже уничтожен
+    }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
-            ACTION_STOP -> stopVpn()
-            else -> startVpn()
+            ACTION_STOP -> stopVpn(startId)
+            else -> startVpn(startId)
         }
         return START_STICKY
     }
 
-    private fun startVpn() {
-        if (commandServer != null || busy) return
-        busy = true
-        VpnState.set(VpnStatus.Starting)
-        showForeground()
-        thread(name = "noctilis-start") {
+    private fun startVpn(startId: Int) {
+        // startForegroundService требует startForeground в течение 5 с — делаем сразу, в главном потоке
+        try { showForeground() } catch (e: Exception) { LogBuffer.add("app", "startForeground: $e") }
+        if (commandServer == null) VpnState.set(VpnStatus.Starting)
+        pendingStarts.incrementAndGet()
+        enqueue {
+            pendingStarts.decrementAndGet()
+            if (destroyed || commandServer != null) return@enqueue
+            VpnState.set(VpnStatus.Starting)
             try {
+                ProbeService.stop()   // пробник пинга держит тот же unix-сокет ядра — гасим, иначе старт упадёт
                 val serverCfg = Prefs.config ?: error("нет конфигурации — открой приложение")
                 val cfg = ConfigBuilder.build(serverCfg, Prefs.excluded, Prefs.server)
                 LogBuffer.add("app", "старт: сервер=${Prefs.server}, исключений=${Prefs.excluded.size}, конфиг ${cfg.length} байт")
@@ -87,26 +106,27 @@ class VPNService : VpnService(), PlatformInterfaceWrapper, CommandServerHandler 
                 VpnState.set(VpnStatus.Error(e.message ?: "не удалось запустить"))
                 cleanup()
                 stopForeground(STOP_FOREGROUND_REMOVE)
-                stopSelf()
-            } finally {
-                busy = false
+                stopSelf(startId)
             }
         }
     }
 
-    private fun stopVpn() {
-        if (busy) return
-        busy = true
+    /** startId = -1, когда остановку просит не команда (отзыв системой, ядро). */
+    private fun stopVpn(startId: Int = -1) {
         Prefs.wantConnected = false
-        VpnState.set(VpnStatus.Stopping)
-        thread(name = "noctilis-stop") {
+        if (commandServer != null || VpnState.isRunning) VpnState.set(VpnStatus.Stopping)
+        enqueue {
+            if (destroyed) return@enqueue
             try {
                 cleanup()
             } finally {
                 VpnState.set(VpnStatus.Disconnected)
-                busy = false
-                stopForeground(STOP_FOREGROUND_REMOVE)
-                stopSelf()
+                // если следом уже стоит START (перезапуск после смены исключений) — уведомление и сервис оставляем
+                if (pendingStarts.get() == 0) {
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                    // stopSelf(startId): если после STOP уже пришёл новый START, сервис не умрёт и старт выполнится
+                    if (startId >= 0) stopSelf(startId) else stopSelf()
+                }
             }
         }
     }
@@ -117,22 +137,24 @@ class VPNService : VpnService(), PlatformInterfaceWrapper, CommandServerHandler 
     private fun startReminderLoop() {
         if (reminderThread != null) return
         reminderThread = thread(name = "noctilis-reminder", isDaemon = true) {
-            while (commandServer != null) {
+            val me = Thread.currentThread()
+            while (commandServer != null && !me.isInterrupted) {
                 try { Thread.sleep(6 * 3600 * 1000L) } catch (_: InterruptedException) { break }
                 if (commandServer == null) break
                 try {
                     val t = Prefs.token ?: continue
-                    val me = Api.me(t)
-                    Prefs.me = me.toString()
-                    Reminder.check(this, me)
+                    val acc = Api.me(t)
+                    Prefs.me = acc.toString()
+                    Reminder.check(this, acc)
                 } catch (_: Exception) {}
             }
-            reminderThread = null
+            if (reminderThread === me) reminderThread = null
         }
     }
 
     private fun cleanup() {
         reminderThread?.interrupt()
+        reminderThread = null
         CoreClient.stop()
         val server = commandServer
         commandServer = null
@@ -151,6 +173,8 @@ class VPNService : VpnService(), PlatformInterfaceWrapper, CommandServerHandler 
     }
 
     override fun onDestroy() {
+        destroyed = true
+        ops.shutdown()
         cleanup()
         if (VpnState.status.value !is VpnStatus.Error) VpnState.set(VpnStatus.Disconnected)
         super.onDestroy()

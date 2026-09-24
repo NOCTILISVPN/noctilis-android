@@ -36,6 +36,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -44,7 +45,13 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import net.noctilis.app.Api
 import net.noctilis.app.Fmt
 import net.noctilis.app.Host
@@ -56,6 +63,7 @@ import net.noctilis.app.ui.NHeader
 import net.noctilis.app.ui.NText
 import net.noctilis.app.ui.accentGradient
 import org.json.JSONObject
+import android.util.Base64
 
 private data class Msg(val id: Int, val dir: String, val text: String, val ts: Long, val hasImage: Boolean)
 
@@ -75,35 +83,47 @@ fun SupportScreen(host: Host, onBack: () -> Unit) {
     var sending by remember { mutableStateOf(false) }
     var err by remember { mutableStateOf("") }
     val images = remember { mutableStateMapOf<Int, Bitmap?>() }   // id → картинка (null = грузится/нет)
+    val imageOrder = remember { ArrayDeque<Int>() }                  // порядок загрузки — старые выбрасываем из памяти
     val list = rememberLazyListState()
+    val ui = rememberCoroutineScope()
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
 
     fun parse(o: JSONObject): List<Msg> {
         val a = o.optJSONArray("messages") ?: return emptyList()
-        return (0 until a.length()).map { i -> val m = a.getJSONObject(i); Msg(m.optInt("id"), m.optString("dir"), m.optString("text"), m.optLong("ts"), m.optBoolean("has_image")) }
+        return (0 until a.length()).mapNotNull { i -> a.optJSONObject(i) }
+            .map { m -> Msg(m.optInt("id"), m.optString("dir"), m.optString("text"), m.optLong("ts"), m.optBoolean("has_image")) }
+            .distinctBy { it.id }   // повтор id ронял LazyColumn («key was already used»)
     }
-    fun load() {
-        Thread {
-            try { val r = Api.supportList(host.token ?: return@Thread, 0); val l = parse(r); host.runUi { msgs = l; loaded = true; err = "" } }
-            catch (_: Exception) { host.runUi { loaded = true; if (msgs.isEmpty()) err = "Нет связи с сервером" } }
-        }.start()
+    suspend fun load() {
+        val t = host.token ?: return
+        try { val l = withContext(Dispatchers.IO) { parse(Api.supportList(t, 0)) }; msgs = l; loaded = true; err = "" }
+        catch (_: Exception) { loaded = true; if (msgs.isEmpty()) err = "Нет связи с сервером" }
     }
     fun loadImage(id: Int) {
         if (images.containsKey(id)) return
         images[id] = null
-        Thread {
-            val bmp = try { Images.decodeScaled(Api.supportImage(host.token!!, id), 1200) } catch (_: Exception) { null }
-            host.runUi { images[id] = bmp }
-        }.start()
+        ui.launch {
+            val t = host.token
+            val bmp = if (t == null) null else withContext(Dispatchers.IO) { try { Images.decodeScaled(Api.supportImage(t, id), 1200) } catch (_: Exception) { null } }
+            images[id] = bmp
+            if (bmp != null) {
+                // в памяти держим не больше 12 картинок (≈ до 70 МБ): остальные подгрузятся заново при прокрутке
+                imageOrder.addLast(id)
+                while (imageOrder.size > 12) { val old = imageOrder.removeFirst(); if (old != id) images.remove(old) }
+            }
+        }
     }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
-        Thread {
-            val bytes = try { ctx.contentResolver.openInputStream(uri)?.use { it.readBytes() } } catch (_: Exception) { null }
-            val prev = bytes?.let { Images.decodeScaled(it, 600) }
-            host.runUi { if (bytes != null && prev != null) { attached = bytes; attachedPreview = prev } else err = "Не удалось открыть картинку" }
-        }.start()
+        ui.launch {
+            // файл из галереи не читаем целиком: сразу ужимаем в JPEG ≤ 1600 px и храним только его
+            val jpeg = withContext(Dispatchers.IO) { Images.toJpeg(ctx, uri) }
+            val prev = jpeg?.let { withContext(Dispatchers.IO) { Images.decodeScaled(it, 600) } }
+            if (jpeg != null && prev != null) { attached = jpeg; attachedPreview = prev } else err = "Не удалось открыть картинку"
+        }
     }
-    LaunchedEffect(Unit) { while (true) { load(); delay(8_000) } }
+    // опрос каждые 8 с — только пока экран виден; свёрнутое приложение сеть не дёргает
+    LaunchedEffect(lifecycle) { lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) { while (true) { load(); delay(8_000) } } }
     LaunchedEffect(msgs.size) { if (msgs.isNotEmpty()) list.animateScrollToItem(msgs.size - 1) }
 
     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp).navigationBarsPadding().imePadding()) {
@@ -116,7 +136,7 @@ fun SupportScreen(host: Host, onBack: () -> Unit) {
             if (loaded && msgs.isEmpty()) item { NText(if (err.isEmpty()) "Сообщений пока нет." else err, muted = true, size = 13) }
             items(msgs, key = { it.id }) { m ->
                 val mine = m.dir == "in"
-                if (m.hasImage) LaunchedEffect(m.id) { loadImage(m.id) }
+                if (m.hasImage && !images.containsKey(m.id)) LaunchedEffect(m.id) { loadImage(m.id) }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start) {
                     Column(
                         Modifier.fillMaxWidth(0.85f).clip(RoundedCornerShape(16.dp)).background(if (mine) p.accent.copy(alpha = 0.18f) else p.card2).padding(12.dp),
@@ -158,18 +178,18 @@ fun SupportScreen(host: Host, onBack: () -> Unit) {
                 Modifier.size(50.dp).clip(RoundedCornerShape(14.dp)).background(if (canSend) accentGradient(p) else androidx.compose.ui.graphics.Brush.linearGradient(listOf(p.card2, p.card2)))
                     .clickable(enabled = canSend) {
                         sending = true
-                        val t = text.trim(); val img = attached
-                        Thread {
-                            val ok = try {
-                                val b64 = img?.let { Images.encode(it) }
-                                Api.supportSend(host.token!!, t, b64); true
-                            } catch (_: Exception) { false }
-                            host.runUi {
-                                sending = false
-                                if (ok) { text = ""; attached = null; attachedPreview = null; load() }
-                                else err = "Не отправилось — проверьте интернет и попробуйте ещё раз"
+                        val t = text.trim(); val img = attached; val token = host.token
+                        ui.launch {
+                            val ok = withContext(Dispatchers.IO) {
+                                try {
+                                    val b64 = img?.let { Base64.encodeToString(it, Base64.NO_WRAP) }   // уже JPEG ≤ 1600 px
+                                    Api.supportSend(token ?: error("нет аккаунта"), t, b64); true
+                                } catch (_: Exception) { false }
                             }
-                        }.start()
+                            sending = false
+                            if (ok) { text = ""; attached = null; attachedPreview = null; load() }
+                            else err = "Не отправилось — проверьте интернет и попробуйте ещё раз"
+                        }
                     },
                 contentAlignment = Alignment.Center,
             ) { Icon(Icons.Rounded.Send, null, tint = if (canSend) p.accentText else p.muted, modifier = Modifier.size(22.dp)) }

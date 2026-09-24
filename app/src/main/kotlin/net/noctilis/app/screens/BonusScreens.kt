@@ -1,7 +1,5 @@
 package net.noctilis.app.screens
 
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.util.Base64
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -33,6 +31,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -41,10 +40,15 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import net.noctilis.app.Api
 import net.noctilis.app.ApiException
 import net.noctilis.app.Fmt
 import net.noctilis.app.Host
+import net.noctilis.app.Images
 import net.noctilis.app.ui.BodyFont
 import net.noctilis.app.ui.HeadFont
 import net.noctilis.app.ui.LocalPalette
@@ -63,19 +67,22 @@ import net.noctilis.app.ui.NText
 import net.noctilis.app.ui.NTile
 import org.json.JSONArray
 import org.json.JSONObject
-import java.io.ByteArrayOutputStream
 
 /** Данные вкладки «Бонусы»: рефералка + акции, одна база с ботом NOCTILIS. */
 class BonusState {
     var data by mutableStateOf<JSONObject?>(null)
     var error by mutableStateOf("")
+    /** Запрос живёт в области активности, а не экрана: ответ дойдёт и после перехода между вкладками бонусов. */
     fun load(host: Host) {
-        Thread {
-            try { val t = host.token ?: error("нет аккаунта"); val r = Api.bonus(t); host.runUi { data = r; error = "" } }
-            catch (_: Exception) { host.runUi { error = "Бонусы сейчас недоступны — попробуйте позже" } }
-        }.start()
+        host.scope.launch {
+            try { val t = host.token ?: error("нет аккаунта"); val r = withContext(Dispatchers.IO) { Api.bonus(t) }; data = r; error = "" }
+            catch (_: Exception) { error = "Бонусы сейчас недоступны — попробуйте позже" }
+        }
     }
 }
+
+/** Сетевой вызов с экрана: в фоне, результат — в состояние экрана; при уходе с экрана корутина отменяется. */
+private fun CoroutineScope.io(block: suspend () -> String, then: (String) -> Unit) = launch { then(withContext(Dispatchers.IO) { block() }) }
 
 private fun JSONObject?.ref(): JSONObject = this?.optJSONObject("ref") ?: JSONObject()
 private fun JSONObject?.promos(): JSONObject = this?.optJSONObject("promos") ?: JSONObject()
@@ -103,6 +110,7 @@ fun BonusScreen(host: Host, st: BonusState, onBack: () -> Unit, onOpen: (String)
     var reqs by remember { mutableStateOf("") }
     var wdOpen by remember { mutableStateOf(false) }
     var msg by remember { mutableStateOf("") }
+    val ui = rememberCoroutineScope()
     LaunchedEffect(Unit) { st.load(host) }
     val d = st.data
     val r = d.ref()
@@ -149,12 +157,12 @@ fun BonusScreen(host: Host, st: BonusState, onBack: () -> Unit, onOpen: (String)
                 Spacer(Modifier.height(8.dp))
                 NButton("Отправить заявку") {
                     if (reqs.trim().length < 5) { msg = "Укажите реквизиты"; return@NButton }
-                    Thread {
-                        val res = try { val x = Api.refWithdraw(host.token!!, reqs.trim()); "Заявка №${x.optInt("id")} принята" }
+                    val t = host.token; val rq = reqs.trim()
+                    ui.io({
+                        try { val x = Api.refWithdraw(t ?: error("нет аккаунта"), rq); "Заявка №${x.optInt("id")} принята" }
                         catch (e: ApiException) { when (e.message) { "pending" -> "Предыдущая заявка ещё в работе"; "min" -> "Меньше минимальной суммы"; else -> "Не удалось: ${e.message}" } }
                         catch (_: Exception) { "Нет связи с сервером" }
-                        host.runUi { msg = res; reqs = ""; wdOpen = false; st.load(host) }
-                    }.start()
+                    }) { res -> msg = res; reqs = ""; wdOpen = false; st.load(host) }
                 }
             }
         }
@@ -180,12 +188,12 @@ fun BonusScreen(host: Host, st: BonusState, onBack: () -> Unit, onOpen: (String)
                     NField(code, { code = it }, "код", Modifier.weight(1f))
                     NGhostButton("Применить", Modifier.width(130.dp)) {
                         val c = code.trim(); if (c.isEmpty()) return@NGhostButton
-                        Thread {
-                            val res = try { Api.refApply(host.token!!, c); "Код принят" }
+                        val t = host.token
+                        ui.io({
+                            try { Api.refApply(t ?: error("нет аккаунта"), c); "Код принят" }
                             catch (e: ApiException) { when (e.message) { "self" -> "Это ваш собственный код"; "bad_code" -> "Код не похож на наш"; else -> "Код не принят: такого приглашающего нет или код уже вводили" } }
                             catch (_: Exception) { "Нет связи с сервером" }
-                            host.runUi { msg = res; if (res == "Код принят") { code = ""; st.load(host) } }
-                        }.start()
+                        }) { res -> msg = res; if (res == "Код принят") { code = ""; st.load(host) } }
                     }
                 }
             }
@@ -203,11 +211,11 @@ fun BonusScreen(host: Host, st: BonusState, onBack: () -> Unit, onOpen: (String)
                 NField(promo, { promo = it.uppercase() }, "NIGHT777", Modifier.weight(1f))
                 NGhostButton("Применить", Modifier.width(130.dp)) {
                     val c = promo.trim(); if (c.isEmpty()) return@NGhostButton
-                    Thread {
-                        val res = try { val x = Api.promo(host.token!!, c); x.optString("message").ifBlank { if (x.optBoolean("ok")) "Промокод принят" else "Промокод не принят" } }
+                    val t = host.token
+                    ui.io({
+                        try { val x = Api.promo(t ?: error("нет аккаунта"), c); x.optString("message").ifBlank { if (x.optBoolean("ok")) "Промокод принят" else "Промокод не принят" } }
                         catch (e: ApiException) { "Не удалось: ${e.message}" } catch (_: Exception) { "Нет связи с сервером" }
-                        host.runUi { msg = res; promo = ""; st.load(host); host.refresh(true) }
-                    }.start()
+                    }) { res -> msg = res; promo = ""; st.load(host); host.refresh(true) }
                 }
             }
         }
@@ -219,7 +227,7 @@ fun BonusScreen(host: Host, st: BonusState, onBack: () -> Unit, onOpen: (String)
             val h = d.optJSONArray("history")
             if (h == null || h.length() == 0) NText("Пока пусто.", muted = true, size = 13)
             else (0 until minOf(h.length(), 30)).forEach { i ->
-                val x = h.getJSONObject(i); val a = x.optInt("amount")
+                val x = h.optJSONObject(i) ?: return@forEach; val a = x.optInt("amount")
                 Row(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
                     NText("${Fmt.dateShort(x.optLong("at"))} · ${x.optString("kind")}", muted = true, size = 13)
                     Spacer(Modifier.weight(1f))
@@ -240,14 +248,15 @@ fun BonusScreen(host: Host, st: BonusState, onBack: () -> Unit, onOpen: (String)
 private fun MaterialsCard(host: Host, group: String, intro: String) {
     var items by remember { mutableStateOf<JSONArray?>(null) }
     LaunchedEffect(group) {
-        Thread { try { val m = Api.materials(host.token ?: return@Thread); host.runUi { items = m.optJSONArray("items") } } catch (_: Exception) {} }.start()
+        val t = host.token ?: return@LaunchedEffect
+        items = withContext(Dispatchers.IO) { try { Api.materials(t).optJSONArray("items") } catch (_: Exception) { null } }
     }
     NCard {
         NText(intro, muted = true, size = 12)
         Spacer(Modifier.height(4.dp))
         val arr = items
         if (arr == null) NText("Загружаем…", muted = true, size = 12)
-        else (0 until arr.length()).map { arr.getJSONObject(it) }.filter { it.optString("group") == group }.forEach { m ->
+        else (0 until arr.length()).mapNotNull { arr.optJSONObject(it) }.filter { it.optString("group") == group }.forEach { m ->
             NRow(Icons.Rounded.Download, m.optString("title"), m.optString("note").ifBlank { null }) { host.openUrl(m.optString("url")) }
         }
     }
@@ -262,7 +271,7 @@ private fun VideosCard(host: Host, videos: JSONArray?) {
         if (videos == null) NText("Загружаем…", muted = true, size = 13)
         else if (videos.length() == 0) NText("Пока ни одного ролика.", muted = true, size = 13)
         else (0 until videos.length()).forEach { i ->
-            val v = videos.getJSONObject(i)
+            val v = videos.optJSONObject(i) ?: return@forEach
             Row(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
                 NText("№${v.optInt("id")} · " + v.optString("url").removePrefix("https://").removePrefix("http://").take(30), muted = true, size = 13)
                 Spacer(Modifier.weight(1f))
@@ -281,6 +290,8 @@ private fun SubmitVideoCard(host: Host, program: String, tiers: JSONArray?, onDo
     var url by remember { mutableStateOf("") }
     var tier by remember { mutableStateOf(0) }
     var note by remember { mutableStateOf("") }
+    var busy by remember { mutableStateOf(false) }
+    val ui = rememberCoroutineScope()
     NCard {
         NField(url, { url = it }, if (program == "guide") "https://youtube.com/shorts/…" else "https://www.tiktok.com/@…/video/…", Modifier.fillMaxWidth())
         if (program == "guide" && tiers != null) {
@@ -299,12 +310,13 @@ private fun SubmitVideoCard(host: Host, program: String, tiers: JSONArray?, onDo
             }
         }
         Spacer(Modifier.height(10.dp))
-        NButton("Подать ролик", enabled = url.isNotBlank()) {
-            Thread {
-                val r = try { val x = Api.videoSubmit(host.token!!, program, url.trim(), tier); "Заявка №${x.optInt("id")} отправлена — проверим и начислим." }
+        NButton("Подать ролик", enabled = url.isNotBlank() && !busy) {
+            busy = true
+            val t = host.token; val u = url.trim(); val tr = tier
+            ui.io({
+                try { val x = Api.videoSubmit(t ?: error("нет аккаунта"), program, u, tr); "Заявка №${x.optInt("id")} отправлена — проверим и начислим." }
                 catch (e: ApiException) { e.message ?: "Не удалось" } catch (_: Exception) { "Нет связи с сервером" }
-                host.runUi { note = r; if (r.startsWith("Заявка")) { url = ""; onDone() } }
-            }.start()
+            }) { r -> busy = false; note = r; if (r.startsWith("Заявка")) { url = ""; onDone() } }
         }
         if (note.isNotEmpty()) { Spacer(Modifier.height(6.dp)); NText(note, color = if (note.startsWith("Заявка")) p.ok else p.warn, size = 13) }
     }
@@ -316,7 +328,8 @@ fun GuideScreen(host: Host, st: BonusState, onBack: () -> Unit) {
     var codeIn by remember { mutableStateOf("") }
     var codeNote by remember { mutableStateOf("") }
     var videos by remember { mutableStateOf<JSONArray?>(null) }
-    fun loadVideos() { Thread { try { val v = Api.videos(host.token ?: return@Thread); host.runUi { videos = v } } catch (_: Exception) {} }.start() }
+    val ui = rememberCoroutineScope()
+    fun loadVideos() { val t = host.token ?: return; ui.launch { withContext(Dispatchers.IO) { try { Api.videos(t) } catch (_: Exception) { null } }?.let { videos = it } } }
     LaunchedEffect(Unit) { if (st.data == null) st.load(host); loadVideos() }
     val d = st.data; val pr = d.promos(); val a = d?.optJSONObject("author")
     val bonusDays = pr.optInt("bonus_days", 30)
@@ -352,11 +365,11 @@ fun GuideScreen(host: Host, st: BonusState, onBack: () -> Unit) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     NField(codeIn, { codeIn = it.uppercase() }, "NIGHT777", Modifier.weight(1f))
                     NGhostButton("Создать", Modifier.width(120.dp)) {
-                        Thread {
-                            val r = try { val x = Api.codeCreate(host.token!!, codeIn.trim()); "Код создан: ${x.optString("code")}" }
+                        val t = host.token; val c = codeIn.trim()
+                        ui.io({
+                            try { val x = Api.codeCreate(t ?: error("нет аккаунта"), c); "Код создан: ${x.optString("code")}" }
                             catch (e: ApiException) { e.message ?: "Не удалось" } catch (_: Exception) { "Нет связи с сервером" }
-                            host.runUi { codeNote = r; if (r.startsWith("Код создан")) st.load(host) }
-                        }.start()
+                        }) { r -> codeNote = r; if (r.startsWith("Код создан")) st.load(host) }
                     }
                 }
                 if (codeNote.isNotEmpty()) { Spacer(Modifier.height(6.dp)); NText(codeNote, color = if (codeNote.startsWith("Код создан")) p.ok else p.warn, size = 13) }
@@ -397,7 +410,8 @@ fun GuideScreen(host: Host, st: BonusState, onBack: () -> Unit) {
 fun BannerScreen(host: Host, st: BonusState, onBack: () -> Unit) {
     val p = LocalPalette.current
     var videos by remember { mutableStateOf<JSONArray?>(null) }
-    fun loadVideos() { Thread { try { val v = Api.videos(host.token ?: return@Thread); host.runUi { videos = v } } catch (_: Exception) {} }.start() }
+    val ui = rememberCoroutineScope()
+    fun loadVideos() { val t = host.token ?: return; ui.launch { withContext(Dispatchers.IO) { try { Api.videos(t) } catch (_: Exception) { null } }?.let { videos = it } } }
     LaunchedEffect(Unit) { if (st.data == null) st.load(host); loadVideos() }
     val d = st.data; val pr = d.promos()
     val rate = pr.optInt("banner_rate", 300) / 100
@@ -467,24 +481,13 @@ fun BannerScreen(host: Host, st: BonusState, onBack: () -> Unit) {
     }
 }
 
-/** Скриншот → JPEG до 1600 px → base64 (на сервер уходит операторам с кнопками «+7 дней / Отказать»). */
-private fun encodeScreenshot(bytes: ByteArray): String? {
-    val opts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-    BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
-    var sample = 1
-    while (opts.outWidth / sample > 1600 || opts.outHeight / sample > 1600) sample *= 2
-    val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, BitmapFactory.Options().apply { inSampleSize = sample }) ?: return null
-    val out = ByteArrayOutputStream()
-    bmp.compress(Bitmap.CompressFormat.JPEG, 85, out)
-    return Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
-}
-
 @Composable
 fun StoryScreen(host: Host, st: BonusState, onBack: () -> Unit) {
     val p = LocalPalette.current
     val ctx = LocalContext.current
     var note by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
+    val ui = rememberCoroutineScope()
     LaunchedEffect(Unit) { if (st.data == null) st.load(host) }
     val d = st.data; val pr = d.promos(); val r = d.ref()
     val days = pr.optInt("story_days", 7)
@@ -492,15 +495,15 @@ fun StoryScreen(host: Host, st: BonusState, onBack: () -> Unit) {
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
         busy = true; note = "Отправляем скриншот…"
-        Thread {
-            val res = try {
-                val bytes = ctx.contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: error("не прочитать файл")
-                val b64 = encodeScreenshot(bytes) ?: error("это не картинка")
-                val x = Api.storySubmit(host.token!!, b64)
+        val t = host.token
+        ui.io({
+            try {
+                // скриншот → JPEG ≤ 1600 px → base64; файл целиком в память не читаем, нехватка памяти — не падение
+                val jpeg = Images.toJpeg(ctx, uri) ?: error("это не картинка")
+                val x = Api.storySubmit(t ?: error("нет аккаунта"), Base64.encodeToString(jpeg, Base64.NO_WRAP))
                 "Заявка №${x.optInt("id")} отправлена — проверим и начислим $days ${Fmt.dw(days)}."
             } catch (e: ApiException) { e.message ?: "Не удалось" } catch (e: Exception) { "Не удалось: ${e.message}" }
-            host.runUi { note = res; busy = false; st.load(host) }
-        }.start()
+        }) { res -> note = res; busy = false; st.load(host) }
     }
     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp).navigationBarsPadding().verticalScroll(rememberScrollState())) {
         NHeader("Акция", onBack)

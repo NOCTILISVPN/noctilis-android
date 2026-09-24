@@ -75,6 +75,8 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -86,7 +88,15 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import net.noctilis.app.screens.BannerScreen
 import net.noctilis.app.screens.BonusScreen
@@ -132,6 +142,8 @@ class MainActivity : ComponentActivity(), Host {
     private var error by mutableStateOf<String?>(null)
     private var themeName by mutableStateOf(Prefs.theme)
     private val bonus = BonusState()
+    private var refreshJob: Job? = null
+    override val scope: CoroutineScope get() = lifecycleScope
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -158,34 +170,44 @@ class MainActivity : ComponentActivity(), Host {
         }
     }
 
-    /** Регистрация (если надо) + /me + /config + проверка обновления. */
+    /**
+     * Регистрация (если надо) + /me + /config + проверка обновления.
+     * Корутина в lifecycleScope: при уничтожении активности (поворот) отменяется, а не пишет
+     * в состояние мёртвой активности. Одновременно идёт один запрос: раньше onResume и первый
+     * запуск экрана стартовали два потока сразу, и на первом запуске оба вызывали /register.
+     */
     override fun refresh(silent: Boolean) {
-        if (loading) return
+        if (refreshJob?.isActive == true) { if (!silent) loading = true; return }
         loading = !silent
-        Thread { Updater.check() }.start()
-        Thread {
+        lifecycleScope.launch(Dispatchers.IO) { Updater.check() }
+        refreshJob = lifecycleScope.launch {
             try {
-                var token = Prefs.token
-                if (token == null) {
-                    val r = Api.register(this)
-                    token = r.getString("token")
-                    Prefs.token = token
-                    Prefs.me = r.toString()
+                val me = withContext(Dispatchers.IO) {
+                    var token = Prefs.token
+                    if (token == null) {
+                        val r = Api.register(applicationContext)
+                        token = r.getString("token")
+                        Prefs.token = token
+                        Prefs.me = r.toString()
+                    }
+                    val me = Api.me(token)
+                    Prefs.me = me.toString()
+                    me
                 }
-                val me = Api.me(token)
-                Prefs.me = me.toString()
-                runOnUiThread { account = me; error = null }
-                Reminder.check(this, me)
-                if (me.optBoolean("active")) Prefs.config = Api.config(token).toString()
+                account = me; error = null
+                withContext(Dispatchers.IO) {
+                    Reminder.check(applicationContext, me)
+                    if (me.optBoolean("active")) Prefs.config = Api.config(Prefs.token ?: return@withContext).toString()
+                }
             } catch (e: ApiException) {
                 if (e.code == 401) Prefs.token = null
-                runOnUiThread { if (!silent || account == null) error = describe(e) }
+                if (!silent || account == null) error = describe(e)
             } catch (e: Exception) {
-                runOnUiThread { if (!silent || account == null) error = describe(e) }
+                if (!silent || account == null) error = describe(e)
             } finally {
-                runOnUiThread { loading = false }
+                loading = false
             }
-        }.start()
+        }
     }
 
     private fun describe(e: Exception): String = when {
@@ -220,23 +242,24 @@ class MainActivity : ComponentActivity(), Host {
     override fun toast(text: String) { Toast.makeText(this, text, Toast.LENGTH_SHORT).show() }
     override fun runUi(block: () -> Unit) { runOnUiThread(block) }
 
-    /** После смены исключений или подписки — пересоздать туннель, если он включён. */
+    /**
+     * После смены исключений или подписки — пересоздать туннель, если он включён.
+     * Сервис ставит команды в очередь, поэтому START можно слать сразу за STOP; контекст —
+     * Application, чтобы не держать активность.
+     */
     private fun restartIfRunning() {
         if (VpnState.isRunning) {
-            VPNService.stop(this)
-            Thread {
-                var waited = 0
-                while (VpnState.isRunning && waited < 5000) { Thread.sleep(100); waited += 100 }
-                Thread.sleep(300)
-                if (VpnService.prepare(this) == null) VPNService.start(this)
-            }.start()
+            val app = applicationContext
+            VPNService.stop(app)
+            if (VpnService.prepare(app) == null) VPNService.start(app)
         }
     }
 
     @Composable
     private fun Root() {
         val p = LocalPalette.current
-        var screen by remember { mutableStateOf(if (intent?.getStringExtra("screen") == "pay") Screen.Pay else Screen.Home) }
+        // rememberSaveable: поворот экрана не выбрасывает на главный
+        var screen by rememberSaveable { mutableStateOf(if (intent?.getStringExtra("screen") == "pay") Screen.Pay else Screen.Home) }
         val status by VpnState.status.collectAsState()
         val vpnPermission = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
             if (it.resultCode == Activity.RESULT_OK) VPNService.start(this)
@@ -248,8 +271,12 @@ class MainActivity : ComponentActivity(), Host {
                 notifPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
             if (account == null || Prefs.config == null) refresh()
         }
-        LaunchedEffect(Unit) {   // обновление: не только при возврате на экран, но и раз в 15 минут (24.09)
-            while (true) { kotlinx.coroutines.delay(15 * 60_000L); Thread { Updater.check() }.start() }
+        val lifecycle = LocalLifecycleOwner.current.lifecycle
+        LaunchedEffect(lifecycle) {   // обновление: не только при возврате на экран, но и раз в 15 минут (24.09);
+            // только пока приложение на экране — свёрнутое не ходит в сеть и не тратит батарею
+            lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                while (true) { delay(15 * 60_000L); withContext(Dispatchers.IO) { Updater.check() } }
+            }
         }
 
         fun toggle() {
@@ -329,7 +356,7 @@ class MainActivity : ComponentActivity(), Host {
                 }
                 if (update != null) {
                     Spacer(Modifier.height(6.dp))
-                    NCard(Modifier.clickable(enabled = updState.isEmpty()) { Updater.download(this@MainActivity, update!!) }) {
+                    NCard(Modifier.clickable(enabled = !Updater.isDownloading) { Updater.download(this@MainActivity, update!!) }) {
                         NText(if (updState.isEmpty()) "Доступна версия ${update!!.version} · нажмите, чтобы обновить" else updState, color = p.accent, size = 14)
                     }
                 }
@@ -419,6 +446,7 @@ class MainActivity : ComponentActivity(), Host {
         val status by VpnState.status.collectAsState()
         val pings by CoreClient.pings.collectAsState()
         val testing by CoreClient.testing.collectAsState()
+        val ui = rememberCoroutineScope()
         Column(Modifier.fillMaxSize().padding(horizontal = 16.dp).navigationBarsPadding().verticalScroll(rememberScrollState())) {
             NHeader("Серверы", onBack)
             NCard {
@@ -426,7 +454,8 @@ class MainActivity : ComponentActivity(), Host {
                 Spacer(Modifier.height(8.dp))
                 val canTest = !testing && (status is VpnStatus.Connected || status is VpnStatus.Disconnected || status is VpnStatus.Error)
                 NGhostButton(if (testing) "Проверяем…" else "Проверить пинг", icon = Icons.Rounded.Refresh) {
-                    if (canTest) { if (status is VpnStatus.Connected) CoreClient.testAll() else ProbeService.probe() }
+                    // разбор конфига и команда ядру — не в главном потоке
+                    if (canTest) ui.launch(Dispatchers.IO) { if (VpnState.status.value is VpnStatus.Connected) CoreClient.testAll() else ProbeService.probe() }
                 }
                 Spacer(Modifier.height(8.dp))
                 if (servers.isEmpty()) NText("Список серверов появится после первого обмена с сервером NOCTILIS.", muted = true, size = 13)
@@ -434,7 +463,8 @@ class MainActivity : ComponentActivity(), Host {
                     Row(
                         Modifier.fillMaxWidth().clickable {
                             server = tag; Prefs.server = tag
-                            if (!CoreClient.select(tag)) restartIfRunning()
+                            // выбор сервера — обращение к ядру по сокету, в главном потоке подвешивало интерфейс
+                            ui.launch { if (!withContext(Dispatchers.IO) { CoreClient.select(tag) }) restartIfRunning() }
                         }.padding(vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
@@ -515,15 +545,18 @@ class MainActivity : ComponentActivity(), Host {
     @Composable
     private fun DiagRow() {
         var diagState by remember { mutableStateOf("") }
+        val ui = rememberCoroutineScope()
         NRow(Icons.Rounded.BugReport, if (diagState.isEmpty()) "Отправить диагностику" else diagState, "журнал ядра уйдёт на наш сервер") {
+            if (diagState == "Отправляем…") return@NRow
             diagState = "Отправляем…"
-            Thread {
-                val r = try {
-                    val t = Prefs.token
-                    if (t == null) "Нет аккаунта" else { Api.diag(t, LogBuffer.dump(), Prefs.server, Prefs.excluded.size, VpnState.status.value.toString()); "Диагностика отправлена" }
-                } catch (e: Exception) { "Не удалось отправить: ${e.message}" }
-                runOnUiThread { diagState = r }
-            }.start()
+            ui.launch {
+                diagState = withContext(Dispatchers.IO) {
+                    try {
+                        val t = Prefs.token
+                        if (t == null) "Нет аккаунта" else { Api.diag(t, LogBuffer.dump(), Prefs.server, Prefs.excluded.size, VpnState.status.value.toString()); "Диагностика отправлена" }
+                    } catch (e: Exception) { "Не удалось отправить: ${e.message}" }
+                }
+            }
         }
     }
 
@@ -611,7 +644,7 @@ class MainActivity : ComponentActivity(), Host {
                 Spacer(Modifier.height(10.dp))
                 if (plans != null) {
                     (0 until plans.length()).forEach { i ->
-                        val pl = plans.getJSONObject(i)
+                        val pl = plans.optJSONObject(i) ?: return@forEach
                         Row(
                             Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(p.card2).border(1.dp, p.line, RoundedCornerShape(16.dp))
                                 .clickable { openPay(pl.optInt("days")) }.padding(14.dp),

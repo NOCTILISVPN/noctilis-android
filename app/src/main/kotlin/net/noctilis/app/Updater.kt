@@ -15,6 +15,7 @@ import org.json.JSONObject
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.concurrent.atomic.AtomicBoolean
 
 data class UpdateInfo(val version: String, val url: String, val size: Long)
 
@@ -40,8 +41,14 @@ object Updater {
         return false
     }
 
-    /** Вызывать в фоне. */
+    private val checking = AtomicBoolean(false)
+    private val downloading = AtomicBoolean(false)
+    /** Идёт скачивание — карточку обновления нажимать нельзя; после ошибки можно повторить. */
+    val isDownloading: Boolean get() = downloading.get()
+
+    /** Вызывать в фоне. Одновременно только одна проверка (onResume и 15-минутный цикл совпадают). */
     fun check() {
+        if (!checking.compareAndSet(false, true)) return
         try {
             val c = URL(VERSION_URL).openConnection() as HttpURLConnection
             c.connectTimeout = 10_000; c.readTimeout = 10_000
@@ -50,35 +57,47 @@ object Updater {
             val v = j.getString("version")
             _available.value = if (isNewer(v, BuildConfig.VERSION_NAME)) UpdateInfo(v, j.getString("url"), j.optLong("size")) else null
         } catch (_: Exception) {
+        } finally {
+            checking.set(false)
         }
     }
 
-    fun download(ctx: Context, info: UpdateInfo) {
-        val dir = ctx.getExternalFilesDir(null) ?: ctx.filesDir
-        val file = File(dir, "noctilis-update.apk")
-        if (file.exists()) file.delete()
-        val dm = ctx.getSystemService(DownloadManager::class.java)
-        val req = DownloadManager.Request(Uri.parse(info.url))
-            .setTitle("NOCTILIS ${info.version}")
-            .setDescription("Обновление приложения")
-            .setMimeType("application/vnd.android.package-archive")
-            .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE)
-            .setDestinationUri(Uri.fromFile(file))
-        val id = dm.enqueue(req)
-        _state.value = "Скачиваем ${info.version}…"
-        val receiver = object : BroadcastReceiver() {
-            override fun onReceive(c: Context, intent: Intent) {
-                if (intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1) != id) return
-                try { c.unregisterReceiver(this) } catch (_: Exception) {}
-                if (!file.exists() || (info.size > 0 && file.length() != info.size)) {
-                    _state.value = "Файл скачался не полностью, попробуйте ещё раз"
-                    return
+    fun download(context: Context, info: UpdateInfo) {
+        // приёмник живёт до конца скачивания — регистрируем на Application, а не на активности,
+        // иначе после поворота/закрытия экрана утекала активность и система ругалась на leaked receiver
+        val ctx = context.applicationContext
+        if (!downloading.compareAndSet(false, true)) return
+        try {
+            val dir = ctx.getExternalFilesDir(null) ?: ctx.filesDir
+            val file = File(dir, "noctilis-update.apk")
+            if (file.exists()) file.delete()
+            val dm = ctx.getSystemService(DownloadManager::class.java)
+            val req = DownloadManager.Request(Uri.parse(info.url))
+                .setTitle("NOCTILIS ${info.version}")
+                .setDescription("Обновление приложения")
+                .setMimeType("application/vnd.android.package-archive")
+                .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE)
+                .setDestinationUri(Uri.fromFile(file))
+            val id = dm.enqueue(req)
+            _state.value = "Скачиваем ${info.version}…"
+            val receiver = object : BroadcastReceiver() {
+                override fun onReceive(c: Context, intent: Intent) {
+                    if (intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1) != id) return
+                    try { ctx.unregisterReceiver(this) } catch (_: Exception) {}
+                    downloading.set(false)
+                    if (!file.exists() || (info.size > 0 && file.length() != info.size)) {
+                        _state.value = "Файл скачался не полностью, попробуйте ещё раз"
+                        return
+                    }
+                    _state.value = ""
+                    try { install(ctx, file) } catch (e: Exception) { _state.value = "Не удалось открыть установку: ${e.message}" }
                 }
-                _state.value = ""
-                install(c, file)
             }
+            ContextCompat.registerReceiver(ctx, receiver, IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE), ContextCompat.RECEIVER_EXPORTED)
+        } catch (e: Exception) {
+            downloading.set(false)
+            _state.value = "Не удалось начать скачивание: ${e.message}"
         }
-        ContextCompat.registerReceiver(ctx, receiver, IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE), ContextCompat.RECEIVER_EXPORTED)
     }
 
     private fun install(ctx: Context, file: File) {

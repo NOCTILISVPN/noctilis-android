@@ -16,35 +16,45 @@ import org.json.JSONObject
  */
 object ProbeService : PlatformInterfaceWrapper, CommandServerHandler {
     private var server: CommandServer? = null
+    private var starting = false   // поток пробника запущен, ядро ещё не создано
 
     @Synchronized
-    fun isRunning(): Boolean = server != null
+    fun isRunning(): Boolean = server != null || starting
 
     /** Запускает ядро-пробник, меряет, через ~8 с останавливает. Возвращает false, если нельзя. */
     @Synchronized
     fun probe(): Boolean {
-        if (server != null || VpnState.isRunning) return false
+        // раньше два быстрых нажатия «Проверить пинг» поднимали два ядра на одном unix-сокете
+        if (server != null || starting || VpnState.isRunning) return false
         val base = Prefs.config ?: return false
         val cfg = try { probeConfig(ConfigBuilder.build(base, emptySet(), "auto")) } catch (_: Exception) { return false }
-        Thread {
+        starting = true
+        Thread({
+            var s: CommandServer? = null
             try {
+                if (VpnState.isRunning) return@Thread   // пока готовили конфиг, пользователь включил VPN
                 DefaultNetworkMonitor.start()
-                val s = CommandServer(this, this)
+                s = CommandServer(this, this)
                 s.start()
-                synchronized(this) { server = s }
+                synchronized(this) { server = s; starting = false }
                 s.startOrReloadService(cfg, OverrideOptions())
                 CoreClient.start()
                 Thread.sleep(800)
+                if (!isMine(s)) return@Thread   // пробник уже погасили (стартовал VPN) — его ядро не трогаем
                 CoreClient.testAll()
                 Thread.sleep(8000)
             } catch (e: Exception) {
                 LogBuffer.add("app", "пробник: $e")
             } finally {
-                stop()
+                synchronized(this) { starting = false }
+                if (s == null || isMine(s)) stop()
             }
-        }.start()
+        }, "noctilis-probe").start()
         return true
     }
+
+    @Synchronized
+    private fun isMine(s: CommandServer): Boolean = server === s
 
     @Synchronized
     fun stop() {
