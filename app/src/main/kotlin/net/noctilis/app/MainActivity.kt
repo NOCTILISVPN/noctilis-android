@@ -411,11 +411,11 @@ class MainActivity : ComponentActivity(), Host {
                 Spacer(Modifier.height(6.dp))
                 Text(
                     when (status) {
-                        is VpnStatus.Connected -> "VPN включён"
+                        is VpnStatus.Connected -> "VPN включён · защищённое соединение"
                         is VpnStatus.Error -> status.message
                         else -> "VPN выключен"
                     },
-                    color = if (status is VpnStatus.Error) p.warn else p.muted, fontFamily = BodyFont, fontSize = 13.sp,
+                    color = if (status is VpnStatus.Error) p.warn else p.muted, fontFamily = BodyFont, fontSize = if (compact) 12.sp else 13.sp,
                     maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                 )
                 Spacer(Modifier.weight(1f).heightIn(min = 10.dp))
