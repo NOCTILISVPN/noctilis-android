@@ -29,6 +29,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -334,28 +335,35 @@ class MainActivity : ComponentActivity(), Host {
         val serverLabel = if (server == "auto") "Автовыбор" else server
         val ping = if (server == "auto") pings.values.filter { it.delayMs > 0 }.minOfOrNull { it.delayMs } else pings[server]?.delayMs?.takeIf { it > 0 }
         androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize()) {
-        val small = maxHeight < 620.dp   // очень маленький экран — прокрутка, иначе всё влезает без неё (Андрей 24.09)
-        Column(Modifier.fillMaxSize().then(if (small) Modifier.verticalScroll(rememberScrollState()) else Modifier)) {
+        // Андрей 24–25.09: всё на одном экране. Невысокий экран (или крупный шрифт в настройках телефона) —
+        // компактные размеры; если и так не влезло, экран прокручивается, а не обрезает кнопки.
+        val compact = maxHeight < 760.dp
+        // Высота стража задана шириной (960×536). Нижний блок получает минимум «экран минус страж»:
+        // при неограниченной высоте (прокрутка) Column раздаёт weight-промежутки по этому минимуму,
+        // так что на обычном экране кнопки стоят у низа, а на маленьком — экран просто прокручивается.
+        val bottomMin = (maxHeight - maxWidth * 536f / 960f).coerceAtLeast(0.dp)
+        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState())) {
             Box(Modifier.fillMaxWidth()) {
                 HeroVideo()
                 Text("NOCTILIS", color = p.text, fontFamily = HeadFont, fontWeight = FontWeight.Bold, fontSize = 26.sp, letterSpacing = 5.sp,
                     modifier = Modifier.align(Alignment.BottomStart).padding(start = 20.dp, bottom = 6.dp))
             }
-            Column(Modifier.padding(horizontal = 16.dp).navigationBarsPadding(), horizontalAlignment = Alignment.CenterHorizontally) {
-                NCard(padding = 16.dp) {
+            Column(Modifier.heightIn(min = bottomMin).padding(horizontal = 16.dp).navigationBarsPadding(), horizontalAlignment = Alignment.CenterHorizontally) {
+                NCard(padding = if (compact) 12.dp else 16.dp) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        NHeading("Тариф «Полный»", 15)
-                        Spacer(Modifier.weight(1f))
+                        Text("Тариф «Полный»", color = p.text, fontFamily = HeadFont, fontWeight = FontWeight.SemiBold, fontSize = 15.sp,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                        Spacer(Modifier.width(8.dp))
                         when {
                             acc == null && loading -> NBadge("Подключаемся…", p.muted)
                             acc == null -> NBadge("Нет аккаунта", p.danger)
                             !active -> NBadge("Не активна", p.danger)
                             paid -> NBadge("Активна", p.ok)
-                            else -> NBadge("Пробный период", p.warn)
+                            else -> NBadge("Пробный период", p.accent)
                         }
                     }
                     Spacer(Modifier.height(4.dp))
-                    NBig(if (active) "$days" else "0", if (active) Fmt.dw(days) else "дней", 36)
+                    NBig(if (active) "$days" else "0", if (active) Fmt.dw(days) else "дней", if (compact) 30 else 36)
                     NText(if (active) "до " + Fmt.date(acc?.optLong("expiry_ms") ?: 0L) else "Подписка закончилась — продлите в разделе «Оплата»", muted = active, color = if (active) null else p.warn, size = 13)
                     error?.let {
                         Spacer(Modifier.height(4.dp))
@@ -369,10 +377,10 @@ class MainActivity : ComponentActivity(), Host {
                         NText(if (updState.isEmpty()) "Доступна версия ${update!!.version} · нажмите, чтобы обновить" else updState, color = p.accent, size = 14)
                     }
                 }
-                if (small) Spacer(Modifier.height(12.dp)) else Spacer(Modifier.weight(1f))
+                Spacer(Modifier.weight(1f).heightIn(min = 10.dp))
                 val busy = status is VpnStatus.Starting || status is VpnStatus.Stopping
                 Box(
-                    Modifier.size(172.dp).clip(CircleShape)
+                    Modifier.size(if (compact) 136.dp else 172.dp).clip(CircleShape)
                         .background(if (connected) accentGradient(p) else Brush.linearGradient(listOf(p.card2, p.card2)))
                         .border(2.dp, if (connected) p.accent else p.line, CircleShape)
                         .clickable(enabled = !busy) { onToggle() },
@@ -401,37 +409,38 @@ class MainActivity : ComponentActivity(), Host {
                         Text("›", color = p.muted, fontSize = 16.sp)
                     }
                 Spacer(Modifier.height(6.dp))
-                NText(
+                Text(
                     when (status) {
-                        is VpnStatus.Connected -> "VPN включён · защищённое соединение"
+                        is VpnStatus.Connected -> "VPN включён"
                         is VpnStatus.Error -> status.message
                         else -> "VPN выключен"
                     },
-                    muted = status !is VpnStatus.Error, color = if (status is VpnStatus.Error) p.warn else null, size = 13,
+                    color = if (status is VpnStatus.Error) p.warn else p.muted, fontFamily = BodyFont, fontSize = 13.sp,
+                    maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                 )
-                if (small) Spacer(Modifier.height(12.dp)) else Spacer(Modifier.weight(1f))
+                Spacer(Modifier.weight(1f).heightIn(min = 10.dp))
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    MenuTile(Icons.Rounded.AccountCircle, "Кабинет", Modifier.weight(1f)) { go(Screen.Cabinet) }
-                    MenuTile(Icons.Rounded.AppSettingsAlt, "Исключения", Modifier.weight(1f)) { go(Screen.Exclusions) }
-                    MenuTile(Icons.Rounded.CreditCard, "Оплата", Modifier.weight(1f), accent = !active || days <= 3) { go(Screen.Pay) }
+                    MenuTile(Icons.Rounded.AccountCircle, "Кабинет", Modifier.weight(1f), compact = compact) { go(Screen.Cabinet) }
+                    MenuTile(Icons.Rounded.AppSettingsAlt, "Исключения", Modifier.weight(1f), compact = compact) { go(Screen.Exclusions) }
+                    MenuTile(Icons.Rounded.CreditCard, "Оплата", Modifier.weight(1f), accent = !active || days <= 3, compact = compact) { go(Screen.Pay) }
                 }
                 Spacer(Modifier.height(8.dp))
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    MenuTile(Icons.Rounded.Redeem, "Бонусы", Modifier.weight(1f)) { go(Screen.Bonus) }
-                    MenuTile(Icons.Rounded.Settings, "Настройки", Modifier.weight(1f)) { go(Screen.Settings) }
-                    MenuTile(Icons.Rounded.SupportAgent, "Поддержка", Modifier.weight(1f)) { go(Screen.Support) }
+                    MenuTile(Icons.Rounded.Redeem, "Бонусы", Modifier.weight(1f), compact = compact) { go(Screen.Bonus) }
+                    MenuTile(Icons.Rounded.Settings, "Настройки", Modifier.weight(1f), compact = compact) { go(Screen.Settings) }
+                    MenuTile(Icons.Rounded.SupportAgent, "Поддержка", Modifier.weight(1f), compact = compact) { go(Screen.Support) }
                 }
-                if (small) Spacer(Modifier.height(12.dp)) else Spacer(Modifier.weight(0.7f))
+                Spacer(Modifier.height(if (compact) 8.dp else 14.dp))
             }
         }
         }
     }
 
     @Composable
-    private fun MenuTile(icon: ImageVector, text: String, modifier: Modifier, accent: Boolean = false, onClick: () -> Unit) {
+    private fun MenuTile(icon: ImageVector, text: String, modifier: Modifier, accent: Boolean = false, compact: Boolean = false, onClick: () -> Unit) {
         val p = LocalPalette.current
         Column(
-            modifier.height(72.dp).clip(RoundedCornerShape(18.dp))
+            modifier.height(if (compact) 60.dp else 72.dp).clip(RoundedCornerShape(18.dp))
                 .background(if (accent) accentGradient(p) else Brush.linearGradient(listOf(p.card, p.card)))
                 .border(1.dp, if (accent) Color.Transparent else p.line, RoundedCornerShape(20.dp))
                 .clickable { onClick() }.padding(horizontal = 4.dp, vertical = 10.dp),

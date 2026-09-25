@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
@@ -73,13 +74,19 @@ fun HeroVideo(modifier: Modifier = Modifier) {
     }
 }
 
-/** Бейдж статуса подписки (.badge в кабинете). */
+/** Бейдж статуса подписки — как .badge в кабинете: фон card2, рамка, цветная точка и текст в одну строку. */
 @Composable
 fun NBadge(text: String, color: Color) {
-    Text(
-        text, color = color, fontFamily = BodyFont, fontSize = 12.sp, fontWeight = FontWeight.Medium,
-        modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(color.copy(alpha = 0.14f)).padding(horizontal = 10.dp, vertical = 4.dp),
-    )
+    val p = LocalPalette.current
+    Row(
+        Modifier.clip(RoundedCornerShape(999.dp)).background(p.card2).border(1.dp, p.line, RoundedCornerShape(999.dp))
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.size(6.dp).clip(RoundedCornerShape(3.dp)).background(color))
+        Spacer(Modifier.width(6.dp))
+        Text(text, color = color, fontFamily = BodyFont, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false)
+    }
 }
 
 /** Крупная цифра с подписью (.big в кабинете). */
