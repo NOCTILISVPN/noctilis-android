@@ -39,3 +39,26 @@ object Fmt {
     fun dateShort(sec: Long): String = if (sec <= 0) "" else SimpleDateFormat("dd.MM.yyyy", Locale("ru")).format(Date(sec * 1000))
     fun time(sec: Long): String = if (sec <= 0) "" else SimpleDateFormat("dd.MM HH:mm", Locale("ru")).format(Date(sec * 1000))
 }
+
+/**
+ * Заголовок и бейдж карточки подписки (Андрей 25.09): оплаченная — «Тариф «Полный»», пробная или ещё
+ * не привязанная — «Пробный период». Бейдж: «Активна/Активен», «Истекает» (жёлтый; у оплаченной — 3 дня
+ * и меньше, у пробной — последние 2 дня, иначе трёхдневный пробный горел бы «Истекает» всё время),
+ * «Не активна/Не активен» (красный).
+ */
+object SubStatus {
+    enum class Tone { OK, WARN, BAD, MUTED }
+    fun paid(acc: JSONObject?): Boolean = acc?.optBoolean("paid") ?: false
+    fun title(acc: JSONObject?): String = if (paid(acc)) "Тариф «Полный»" else "Пробный период"
+    fun badge(acc: JSONObject?, loading: Boolean): Pair<String, Tone> {
+        if (acc == null) return if (loading) "Подключаемся…" to Tone.MUTED else "Нет аккаунта" to Tone.BAD
+        val paid = paid(acc)
+        val active = acc.optBoolean("active")
+        val days = acc.optInt("days_left")
+        return when {
+            !active -> (if (paid) "Не активна" else "Не активен") to Tone.BAD
+            days <= (if (paid) 3 else 1) -> "Истекает" to Tone.WARN
+            else -> (if (paid) "Активна" else "Активен") to Tone.OK
+        }
+    }
+}

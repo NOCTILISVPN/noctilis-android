@@ -84,13 +84,14 @@ fun CabinetScreen(host: Host, onBack: () -> Unit, onSubscriptionChanged: () -> U
         NCard {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    NHeading("Тариф «Полный»", 16)
+                    NHeading(net.noctilis.app.SubStatus.title(acc), 16)
                     NText(acc?.optString("username")?.takeIf { it.isNotBlank() } ?: "—", muted = true, size = 12)
                 }
-                NBadge(
-                    if (!active) "Не активна" else if (paid) "Активна" else "Пробный период",
-                    if (!active) p.danger else if (paid) p.ok else p.warn,
-                )
+                val (bText, bTone) = net.noctilis.app.SubStatus.badge(acc, false)
+                NBadge(bText, when (bTone) {
+                    net.noctilis.app.SubStatus.Tone.OK -> p.ok; net.noctilis.app.SubStatus.Tone.WARN -> p.warn
+                    net.noctilis.app.SubStatus.Tone.BAD -> p.danger; net.noctilis.app.SubStatus.Tone.MUTED -> p.muted
+                })
             }
             Spacer(Modifier.height(8.dp))
             NBig(if (active) "$days" else "0", if (active) Fmt.dw(days) else "дней")

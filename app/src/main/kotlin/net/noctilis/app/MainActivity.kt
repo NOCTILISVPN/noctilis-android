@@ -351,16 +351,11 @@ class MainActivity : ComponentActivity(), Host {
             Column(Modifier.heightIn(min = bottomMin).padding(horizontal = 16.dp).navigationBarsPadding(), horizontalAlignment = Alignment.CenterHorizontally) {
                 NCard(padding = if (compact) 12.dp else 16.dp) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Text("Тариф «Полный»", color = p.text, fontFamily = HeadFont, fontWeight = FontWeight.SemiBold, fontSize = 15.sp,
+                        Text(SubStatus.title(acc), color = p.text, fontFamily = HeadFont, fontWeight = FontWeight.SemiBold, fontSize = 15.sp,
                             maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                         Spacer(Modifier.width(8.dp))
-                        when {
-                            acc == null && loading -> NBadge("Подключаемся…", p.muted)
-                            acc == null -> NBadge("Нет аккаунта", p.danger)
-                            !active -> NBadge("Не активна", p.danger)
-                            paid -> NBadge("Активна", p.ok)
-                            else -> NBadge("Пробный период", p.accent)
-                        }
+                        val (bText, bTone) = SubStatus.badge(acc, loading)
+                        NBadge(bText, when (bTone) { SubStatus.Tone.OK -> p.ok; SubStatus.Tone.WARN -> p.warn; SubStatus.Tone.BAD -> p.danger; SubStatus.Tone.MUTED -> p.muted })
                     }
                     Spacer(Modifier.height(4.dp))
                     NBig(if (active) "$days" else "0", if (active) Fmt.dw(days) else "дней", if (compact) 30 else 36)
