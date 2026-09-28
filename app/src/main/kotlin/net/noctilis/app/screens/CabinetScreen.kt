@@ -82,19 +82,14 @@ fun CabinetScreen(host: Host, onBack: () -> Unit, onSubscriptionChanged: () -> U
     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp).navigationBarsPadding().verticalScroll(rememberScrollState())) {
         NHeader("Кабинет", onBack)
         NCard {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    NHeading(net.noctilis.app.SubStatus.title(acc), 16)
-                    NText(acc?.optString("username")?.takeIf { it.isNotBlank() } ?: "—", muted = true, size = 12)
-                }
-                val (bText, bTone) = net.noctilis.app.SubStatus.badge(acc, false)
-                NBadge(bText, when (bTone) {
+            val (bText, bTone) = net.noctilis.app.SubStatus.badge(acc, false)
+            net.noctilis.app.ui.SubCardHead(net.noctilis.app.SubStatus.title(acc), 16,
+                acc?.optString("username")?.takeIf { it.isNotBlank() } ?: "—", bText,
+                when (bTone) {
                     net.noctilis.app.SubStatus.Tone.OK -> p.ok; net.noctilis.app.SubStatus.Tone.WARN -> p.warn
                     net.noctilis.app.SubStatus.Tone.BAD -> p.danger; net.noctilis.app.SubStatus.Tone.MUTED -> p.muted
-                })
-            }
-            Spacer(Modifier.height(8.dp))
-            NBig(if (active) "$days" else "0", if (active) Fmt.dw(days) else "дней")
+                },
+                if (active) "$days" else "0", if (active) Fmt.dw(days) else "дней", 44)
             NText((if (paid) "Подписка" else "Пробный период") + " до " + Fmt.date(acc?.optLong("expiry_ms") ?: 0L), muted = true, size = 13)
             if (active) NText("Баланс: ${acc?.optInt("balance_rub") ?: 0} ₽ — оплаченные дни × 5 ₽", muted = true, size = 13)
             Spacer(Modifier.height(10.dp))

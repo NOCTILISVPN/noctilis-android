@@ -114,6 +114,7 @@ import net.noctilis.app.ui.LightPalette
 import net.noctilis.app.ui.LocalPalette
 import net.noctilis.app.ui.NBadge
 import net.noctilis.app.ui.NBig
+import net.noctilis.app.ui.SubCardHead
 import net.noctilis.app.ui.NButton
 import net.noctilis.app.ui.NCard
 import net.noctilis.app.ui.NField
@@ -350,15 +351,10 @@ class MainActivity : ComponentActivity(), Host {
             }
             Column(Modifier.heightIn(min = bottomMin).padding(horizontal = 16.dp).navigationBarsPadding(), horizontalAlignment = Alignment.CenterHorizontally) {
                 NCard(padding = if (compact) 12.dp else 16.dp) {
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Text(SubStatus.title(acc), color = p.text, fontFamily = HeadFont, fontWeight = FontWeight.SemiBold, fontSize = 15.sp,
-                            maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                        Spacer(Modifier.width(8.dp))
-                        val (bText, bTone) = SubStatus.badge(acc, loading)
-                        NBadge(bText, when (bTone) { SubStatus.Tone.OK -> p.ok; SubStatus.Tone.WARN -> p.warn; SubStatus.Tone.BAD -> p.danger; SubStatus.Tone.MUTED -> p.muted })
-                    }
-                    Spacer(Modifier.height(4.dp))
-                    NBig(if (active) "$days" else "0", if (active) Fmt.dw(days) else "дней", if (compact) 30 else 36)
+                    val (bText, bTone) = SubStatus.badge(acc, loading)
+                    SubCardHead(SubStatus.title(acc), 15, null, bText,
+                        when (bTone) { SubStatus.Tone.OK -> p.ok; SubStatus.Tone.WARN -> p.warn; SubStatus.Tone.BAD -> p.danger; SubStatus.Tone.MUTED -> p.muted },
+                        if (active) "$days" else "0", if (active) Fmt.dw(days) else "дней", if (compact) 30 else 36)
                     NText(if (active) "до " + Fmt.date(acc?.optLong("expiry_ms") ?: 0L) else "Подписка закончилась — продлите в разделе «Оплата»", muted = active, color = if (active) null else p.warn, size = 13)
                     error?.let {
                         Spacer(Modifier.height(4.dp))

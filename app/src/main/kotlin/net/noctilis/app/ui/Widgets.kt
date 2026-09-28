@@ -135,3 +135,39 @@ fun NPromoCard(emoji: String, title: String, sub: String, onClick: () -> Unit) {
         Text("›", color = p.muted, fontSize = 22.sp)
     }
 }
+
+/**
+ * Шапка карточки подписки: заголовок + бейдж + крупное число дней (Андрей 28.09).
+ * Если заголовок и бейдж не помещаются в одну строку (узкий экран, крупный шрифт в настройках
+ * телефона), бейдж опускается вправо, напротив числа дней, а заголовок получает всю строку.
+ * Где помещается — всё как раньше.
+ */
+@Composable
+fun SubCardHead(title: String, titleSize: Int, subtitle: String?, badge: String, badgeColor: Color,
+                bigValue: String, bigSmall: String, bigSize: Int) {
+    val p = LocalPalette.current
+    val measurer = androidx.compose.ui.text.rememberTextMeasurer()
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val titleW = measurer.measure(title, androidx.compose.ui.text.TextStyle(fontFamily = HeadFont, fontWeight = FontWeight.SemiBold, fontSize = titleSize.sp)).size.width
+        val badgeTextW = measurer.measure(badge, androidx.compose.ui.text.TextStyle(fontFamily = BodyFont, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)).size.width
+        // бейдж: отступы 12+12, точка 6, промежуток 6, рамка 2; между заголовком и бейджем 8
+        val extra = with(density) { (12 + 12 + 6 + 6 + 2 + 8).dp.roundToPx() }
+        val fits = titleW + badgeTextW + extra <= constraints.maxWidth
+        Column(Modifier.fillMaxWidth()) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(title, color = p.text, fontFamily = HeadFont, fontWeight = FontWeight.SemiBold, fontSize = titleSize.sp,
+                        maxLines = if (fits) 1 else 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                    if (subtitle != null) Text(subtitle, color = p.muted, fontFamily = BodyFont, fontSize = 12.sp)
+                }
+                if (fits) { Spacer(Modifier.width(8.dp)); NBadge(badge, badgeColor) }
+            }
+            Spacer(Modifier.height(4.dp))
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.weight(1f)) { NBig(bigValue, bigSmall, bigSize) }
+                if (!fits) { Spacer(Modifier.width(8.dp)); NBadge(badge, badgeColor) }
+            }
+        }
+    }
+}
