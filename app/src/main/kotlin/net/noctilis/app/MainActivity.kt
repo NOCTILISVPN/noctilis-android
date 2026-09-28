@@ -366,6 +366,7 @@ class MainActivity : ComponentActivity(), Host {
                     Spacer(Modifier.height(6.dp))
                     NCard(Modifier.clickable(enabled = !Updater.isDownloading) { Updater.download(this@MainActivity, update!!) }) {
                         NText(if (updState.isEmpty()) "Доступна версия ${update!!.version} · нажмите, чтобы обновить" else updState, color = p.accent, size = 14)
+                        if (updState.isEmpty()) NText("Телефон может предупредить — нажмите «Всё равно установить»", muted = true, size = 12)
                     }
                 }
                 Spacer(Modifier.weight(1f).heightIn(min = 10.dp))
