@@ -8,9 +8,11 @@ APP=/root/projects/techer-app
 DST=/opt/stack/caddy/static/noctilis
 cd $APP/bin
 
-SERVER=$(python3 - <<'EOF'
+SERVER=$(ZONE=${ZONE:-} python3 - <<'EOF'
 import tw, json, time, sys
-for preset in (6813, 6827, 6829):          # Амстердам 4/8, Франкфурт 4/8, Франкфурт 8/12
+import os
+PRESETS = (6751, 6761) if os.environ.get('ZONE') == 'ru' else (6813, 6827, 6829)   # ru: Екатеринбург/Казань 4/8 ≈2,5 ₽/ч; иначе Амстердам/Франкфурт
+for preset in PRESETS:
     r = tw.api('POST', '/api/v1/servers', {'name': tw.NAME, 'preset_id': preset, 'os_id': tw.ubuntu_id(),
                                            'ssh_keys_ids': [tw.ssh_key_id()], 'is_ddos_guard': False})
     if 'server' in r:
@@ -25,7 +27,12 @@ for _ in range(60):
         break
     time.sleep(10)
 if not tw.ip_of(s):   # зарубежные серверы Timeweb создаются только с IPv6 — докупаем IPv4
-    tw.api('POST', '/api/v1/servers/%s/ips' % sid, {'type': 'ipv4'})
+    for attempt in range(3):
+        r4 = tw.api('POST', '/api/v1/servers/%s/ips' % sid, {'type': 'ipv4'})
+        print('ipv4: %s' % json.dumps(r4)[:200], file=sys.stderr)
+        if 'server_ip' in r4:
+            break
+        time.sleep(20)
     for _ in range(30):
         s = tw.api('GET', '/api/v1/servers/%s' % sid).get('server', {})
         if tw.ip_of(s):
@@ -39,9 +46,10 @@ SID=$(python3 -c "import json,sys;print(json.loads(sys.argv[1])['id'])" "$SERVER
 IP=$(python3 -c "import json,sys;print(json.loads(sys.argv[1])['ip'])" "$SERVER")
 trap 'python3 $APP/bin/tw.py delete $SID >/dev/null; echo "сервер $SID удалён"' EXIT
 echo "сервер сборки: $IP"
+[ -n "$IP" ] || { echo "нет адреса IPv4 — сборку не начинаю"; exit 1; }
 for i in $(seq 1 30); do ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o ConnectTimeout=8 -o BatchMode=yes root@$IP true && break; sleep 10; done
 
-bash $APP/bin/build-local.sh "$IP" "$N" || { echo "СБОРКА УПАЛА"; exit 1; }
+USE_PROXY=$([ "${ZONE:-}" = ru ] && echo 1 || echo 0) bash $APP/bin/build-local.sh "$IP" "$N" || { echo "СБОРКА УПАЛА"; exit 1; }
 A=$APP/state/noctilis-android-0.0.$N.apk
 [ -s "$A" ] || { echo "нет APK"; exit 1; }
 

@@ -1,0 +1,6 @@
+ipv4: {"_err": 400, "body": "{\"status_code\":400,\"error_code\":\"abuse_prepayment_required\",\"message\":\"Abuse prepayment required\",\"details\":{\"required_balance\":5250},\"response_id\":\"ac03b238-f0
+ipv4: {"_err": 400, "body": "{\"status_code\":400,\"error_code\":\"abuse_prepayment_required\",\"message\":\"Abuse prepayment required\",\"details\":{\"required_balance\":5250},\"response_id\":\"e1cf781f-e0
+ipv4: {"_err": 400, "body": "{\"status_code\":400,\"error_code\":\"abuse_prepayment_required\",\"message\":\"Abuse prepayment required\",\"details\":{\"required_balance\":5250},\"response_id\":\"32bfbe41-6d
+сервер сборки: 
+нет адреса IPv4 — сборку не начинаю
+сервер 9221871 удалён
