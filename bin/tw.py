@@ -75,6 +75,10 @@ if __name__ == '__main__':
         print(json.dumps({'id': s.get('id'), 'ip': ip_of(s), 'status': s.get('status')}))
     elif cmd == 'delete':
         print(json.dumps(api('DELETE', '/api/v1/servers/%s' % sys.argv[2])))
+        # 01.10.2026: плавающий IPv4 после удаления сервера остаётся платным (200 ₽/мес) — снимаем сами
+        for ip in api('GET', '/api/v1/floating-ips').get('ips', []):
+            if ip.get('resource_type') is None:
+                print('удаляю висячий IP', ip.get('ip'), json.dumps(api('DELETE', '/api/v1/floating-ips/%s' % ip['id'])))
     elif cmd == 'list':
         print(json.dumps([{'id': s['id'], 'name': s.get('name'), 'ip': ip_of(s), 'status': s.get('status')}
                           for s in api('GET', '/api/v1/servers').get('servers', [])], ensure_ascii=False))
