@@ -22,3 +22,6 @@ keystore.properties
 *.iml
 .DS_Store
 __pycache__/
+
+# рабочее состояние сборок (инструменты, кеши, логи, архивы) — живёт только на KZ
+state/
